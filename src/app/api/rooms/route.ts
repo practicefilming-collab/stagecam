@@ -11,9 +11,9 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { script_id, selection_mode, selected_act_id, selected_scene_id } = body;
+  const { script_id, selection_mode, selected_act_id, selected_scene_id, defer_script } = body;
 
-  if (!script_id) {
+  if (!script_id && !defer_script) {
     return NextResponse.json({ error: 'script_id required' }, { status: 400 });
   }
 
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
     .from('rooms')
     .insert({
       creator_id: user.id,
-      script_id,
+      script_id: script_id ?? null,
       selection_mode: selection_mode ?? 'auto',
       selected_act_id: selected_act_id ?? null,
       selected_scene_id: selected_scene_id ?? null,

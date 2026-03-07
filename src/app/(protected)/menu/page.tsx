@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client';
 export default function MenuPage() {
   const [joinCode, setJoinCode] = useState('');
   const [joining, setJoining] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
   const supabase = createClient();
@@ -41,6 +42,25 @@ export default function MenuPage() {
     router.push(`/stage/${code}`);
   };
 
+  const handleCreate = async () => {
+    setCreating(true);
+
+    // Create room with no script yet — will be selected in waiting room
+    const res = await fetch('/api/rooms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ defer_script: true }),
+    });
+
+    if (!res.ok) {
+      setCreating(false);
+      return;
+    }
+
+    const room = await res.json();
+    router.push(`/stage/${room.room_code}`);
+  };
+
   return (
     <div className="max-w-2xl mx-auto px-4 py-16 spotlight min-h-[calc(100vh-3.5rem)]">
       <h1 className="text-3xl font-bold text-gold text-gold-glow mb-12 text-center">
@@ -49,18 +69,19 @@ export default function MenuPage() {
 
       <div className="grid gap-6 md:grid-cols-2">
         {/* Create Stage */}
-        <Link
-          href="/stage/create"
-          className="group bg-surface border border-border rounded-2xl p-8 hover:border-gold/30 transition-all"
+        <button
+          onClick={handleCreate}
+          disabled={creating}
+          className="group bg-surface border border-border rounded-2xl p-8 hover:border-gold/30 transition-all text-left disabled:opacity-50"
         >
           <div className="text-3xl mb-4">🎬</div>
           <h2 className="text-xl font-semibold mb-2 group-hover:text-gold transition-colors">
-            Create Stage
+            {creating ? 'Creating...' : 'Create Stage'}
           </h2>
           <p className="text-sm text-muted">
-            Pick a script and start a rehearsal room. Share the code with others or go solo.
+            Start a rehearsal room. Pick your script, share the code, and perform.
           </p>
-        </Link>
+        </button>
 
         {/* Join Stage */}
         <div className="bg-surface border border-border rounded-2xl p-8">

@@ -61,7 +61,7 @@ export interface Chunk {
 export interface Room {
   id: string;
   creator_id: string;
-  script_id: string;
+  script_id: string | null;
   status: RoomStatus;
   selection_mode: SelectionMode;
   selected_act_id: string | null;
