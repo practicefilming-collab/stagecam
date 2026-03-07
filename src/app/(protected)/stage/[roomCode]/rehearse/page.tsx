@@ -194,7 +194,7 @@ export default function RehearsePage() {
             muted
             playsInline
             style={{ display: isRecorded ? 'none' : 'block' }}
-            className="absolute inset-0 w-full h-full object-cover"
+            className="absolute inset-0 w-full h-full object-contain"
           />
 
           {/* Playback preview — shown after recording */}
