@@ -7,6 +7,7 @@ export const TERMS_VERSION = '1.0';
 
 export const MAX_RECORDING_DURATION_MS = 120_000; // 2 minutes
 export const MAX_PARTICIPANTS = 30;
+export const MAX_CHUNKS_PER_PERSON = 12;
 export const ROOM_CODE_LENGTH = 6;
 
 export const VIDEO_CONSTRAINTS = {

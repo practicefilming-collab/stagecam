@@ -110,7 +110,7 @@ export async function GET(
     userId: a.userId,
     displayName: participantNames.get(a.userId) ?? 'Unknown',
     totalChunks: a.chunks.length,
-    characters: [...new Set(a.chunks.filter((c) => c.character).map((c) => c.character!))],
+    character: a.character,
     dialogueCount: a.chunks.filter((c) => c.role === 'dialogue').length,
     actionCount: a.chunks.filter((c) => c.role !== 'dialogue').length,
   }));

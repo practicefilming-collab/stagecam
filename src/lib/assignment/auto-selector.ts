@@ -1,4 +1,5 @@
 import type { Scene } from '../types';
+import { MAX_CHUNKS_PER_PERSON } from '../constants';
 
 interface SceneCoverage {
   scene: Scene;
@@ -13,7 +14,6 @@ export function selectBestScene(
 ): Scene | null {
   if (scenes.length === 0) return null;
 
-  // Compute coverage scores
   const scored: SceneCoverage[] = scenes.map((scene) => {
     const count = recordingCounts.get(scene.id) ?? 0;
     return {
@@ -23,11 +23,8 @@ export function selectBestScene(
     };
   });
 
-  if (participantCount === 1) {
-    // Solo user: prefer scenes with many chunks (more to perform),
-    // TTS fills the rest so bigger scenes give a richer playback.
-    // Among least-covered scenes, pick the one with the most chunks.
-    return selectForSolo(scored);
+  if (participantCount <= 2) {
+    return selectForSmallGroup(scored, participantCount);
   }
 
   // Multi-participant: filter by character compatibility
@@ -44,21 +41,47 @@ export function selectBestScene(
   return selectFromCandidates(compatible);
 }
 
-function selectForSolo(candidates: SceneCoverage[]): Scene | null {
+/**
+ * For 1-2 people: pick scenes where the top character(s) have
+ * a manageable number of dialogue lines (close to the per-person cap).
+ * Scenes with characters that have ~8-12 dialogue lines are ideal.
+ * Prefer least-covered scenes to spread recordings across the script.
+ */
+function selectForSmallGroup(candidates: SceneCoverage[], participantCount: number): Scene | null {
   if (candidates.length === 0) return null;
 
-  // Sort by coverage ascending (least-recorded first)
-  candidates.sort((a, b) => a.coverageScore - b.coverageScore);
+  const cap = MAX_CHUNKS_PER_PERSON;
 
-  // Get bottom half by coverage
-  const halfSize = Math.max(1, Math.ceil(candidates.length / 2));
-  const leastCovered = candidates.slice(0, halfSize);
+  // Filter to scenes that have characters (dialogue to perform)
+  const withCharacters = candidates.filter(
+    (s) => s.scene.unique_characters.length > 0
+  );
 
-  // Among least-covered, prefer scenes with more chunks
-  leastCovered.sort((a, b) => b.scene.total_chunks - a.scene.total_chunks);
+  // If no scenes with characters, fall back to all scenes
+  const pool = withCharacters.length > 0 ? withCharacters : candidates;
 
-  // Pick from top 3 (slight randomization)
-  const top = leastCovered.slice(0, Math.min(3, leastCovered.length));
+  // Score scenes: prefer least-covered, with character count suitable for group
+  const scored = pool.map((s) => {
+    // Scenes with characters matching participant count are ideal
+    const charCount = s.scene.unique_characters.length;
+    const charFit = charCount >= 1 && charCount <= participantCount ? 1 : 0;
+
+    // Prefer scenes where chunks per person would be near the cap
+    // (not too few, not too many)
+    const chunksPerPerson = s.scene.total_chunks / Math.max(participantCount, 1);
+    const sizeFit = chunksPerPerson >= 4 && chunksPerPerson <= cap * 1.5 ? 1 : 0;
+
+    return {
+      ...s,
+      score: (1 - s.coverageScore) * 3 + charFit * 2 + sizeFit,
+    };
+  });
+
+  // Sort by composite score descending
+  scored.sort((a, b) => b.score - a.score);
+
+  // Pick from top 3 with slight randomization
+  const top = scored.slice(0, Math.min(3, scored.length));
   const idx = Math.floor(Math.random() * top.length);
   return top[idx].scene;
 }
@@ -66,14 +89,11 @@ function selectForSolo(candidates: SceneCoverage[]): Scene | null {
 function selectFromCandidates(candidates: SceneCoverage[]): Scene | null {
   if (candidates.length === 0) return null;
 
-  // Sort by coverage ascending (least-recorded first)
   candidates.sort((a, b) => a.coverageScore - b.coverageScore);
 
-  // Get bottom quartile for randomization
   const quartileSize = Math.max(1, Math.ceil(candidates.length / 4));
   const bottomQuartile = candidates.slice(0, quartileSize);
 
-  // Random pick from bottom quartile
   const idx = Math.floor(Math.random() * bottomQuartile.length);
   return bottomQuartile[idx].scene;
 }

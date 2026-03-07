@@ -10,7 +10,7 @@ interface CallSheetEntry {
   userId: string;
   displayName: string;
   totalChunks: number;
-  characters: string[];
+  character: string | null;
   dialogueCount: number;
   actionCount: number;
 }
@@ -498,17 +498,16 @@ export default function WaitingRoomPage() {
                           )}
                         </div>
                       </div>
-                      {entry.characters.length > 0 && (
+                      {entry.character ? (
                         <p className="text-xs text-gold">
-                          {entry.characters.join(', ')}
+                          {entry.character}
                           <span className="text-muted ml-2">
                             ({entry.dialogueCount} dialogue, {entry.actionCount} other)
                           </span>
                         </p>
-                      )}
-                      {entry.characters.length === 0 && (
+                      ) : (
                         <p className="text-xs text-muted">
-                          {entry.dialogueCount} dialogue, {entry.actionCount} other
+                          {entry.totalChunks} chunks ({entry.dialogueCount} dialogue, {entry.actionCount} other)
                         </p>
                       )}
                     </div>
@@ -577,17 +576,16 @@ export default function WaitingRoomPage() {
                           )}
                         </div>
                       </div>
-                      {entry.characters.length > 0 && (
+                      {entry.character ? (
                         <p className="text-xs text-gold">
-                          {entry.characters.join(', ')}
+                          {entry.character}
                           <span className="text-muted ml-2">
                             ({entry.dialogueCount} dialogue, {entry.actionCount} other)
                           </span>
                         </p>
-                      )}
-                      {entry.characters.length === 0 && (
+                      ) : (
                         <p className="text-xs text-muted">
-                          {entry.dialogueCount} dialogue, {entry.actionCount} other
+                          {entry.totalChunks} chunks ({entry.dialogueCount} dialogue, {entry.actionCount} other)
                         </p>
                       )}
                     </div>
