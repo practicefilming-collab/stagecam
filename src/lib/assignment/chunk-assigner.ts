@@ -23,8 +23,10 @@ export function assignChunks(
   const hasCharacterData = dialogueChunks.length > 0;
 
   if (!hasCharacterData) {
-    // No character data: simple round-robin all chunks
-    chunks.forEach((chunk, i) => {
+    // No character data: prioritize middle/later chunks over scene beginnings.
+    // Scene headings and early action chunks are fine as TTS.
+    const prioritized = prioritizeChunks(chunks);
+    prioritized.forEach((chunk, i) => {
       const assignee = assignments[i % participantIds.length];
       assignee.chunks.push({
         chunk_id: chunk.id,
@@ -62,12 +64,14 @@ export function assignChunks(
     });
   });
 
-  // Assign non-dialogue chunks round-robin, prioritizing those with fewer chunks
+  // Assign non-dialogue chunks, deprioritizing scene beginnings.
+  // Scene headings and early action are assigned last (fine as TTS fallback).
   const nonDialogueChunks = chunks.filter(
     (c) => c.type !== 'dialogue' || !c.character
   );
+  const prioritized = prioritizeChunks(nonDialogueChunks);
 
-  nonDialogueChunks.forEach((chunk) => {
+  prioritized.forEach((chunk) => {
     // Find participant with fewest total chunks
     const minIdx = assignments.reduce(
       (minI, curr, i) =>
@@ -81,4 +85,27 @@ export function assignChunks(
   });
 
   return assignments;
+}
+
+/**
+ * Reorder chunks so scene beginnings (scene_heading, transitions, early
+ * action blocks) come last. These are fine as TTS and don't need a
+ * human performer as much as dialogue and mid-scene action.
+ */
+function prioritizeChunks(chunks: Chunk[]): Chunk[] {
+  const priority = (c: Chunk): number => {
+    // Dialogue always highest priority (assigned separately, but just in case)
+    if (c.type === 'dialogue') return 0;
+    // Mid-scene action is valuable to perform
+    if (c.type === 'action' && c.chunk_in_scene > 3) return 1;
+    // Early action (first 3 chunks of scene) — lower priority
+    if (c.type === 'action') return 2;
+    // Transitions — fine as TTS
+    if (c.type === 'transition') return 3;
+    // Scene headings — always fine as TTS
+    if (c.type === 'scene_heading') return 4;
+    return 2;
+  };
+
+  return [...chunks].sort((a, b) => priority(a) - priority(b));
 }
