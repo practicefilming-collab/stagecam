@@ -1,0 +1,145 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
+import { generateRoomCode } from '@/lib/utils';
+import type { Script, SelectionMode } from '@/lib/types';
+
+export default function CreateStagePage() {
+  const [scripts, setScripts] = useState<Script[]>([]);
+  const [selectedScript, setSelectedScript] = useState<string>('');
+  const [mode, setMode] = useState<SelectionMode>('auto');
+  const [creating, setCreating] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const supabase = createClient();
+
+  useEffect(() => {
+    async function loadScripts() {
+      const { data } = await supabase
+        .from('scripts')
+        .select('*')
+        .order('rank', { ascending: true });
+      setScripts(data ?? []);
+      setLoading(false);
+    }
+    loadScripts();
+  }, []);
+
+  const createRoom = async () => {
+    if (!selectedScript) return;
+    setCreating(true);
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const roomCode = generateRoomCode();
+
+    const { error } = await supabase.from('rooms').insert({
+      creator_id: user.id,
+      script_id: selectedScript,
+      selection_mode: mode,
+      room_code: roomCode,
+    });
+
+    if (error) {
+      setCreating(false);
+      return;
+    }
+
+    // Join as participant (creator)
+    await supabase.from('room_participants').insert({
+      room_id: roomCode, // will be replaced by actual room id
+      user_id: user.id,
+      is_creator: true,
+    });
+
+    router.push(`/stage/${roomCode}`);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)]">
+        <p className="text-muted">Loading scripts...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto px-4 py-12 spotlight min-h-[calc(100vh-3.5rem)]">
+      <h1 className="text-2xl font-bold text-gold mb-8">Create Stage</h1>
+
+      {/* Script Selection */}
+      <div className="mb-8">
+        <label className="block text-sm text-muted mb-3">Select a Script</label>
+        <div className="grid gap-2 max-h-96 overflow-y-auto pr-2">
+          {scripts.map((script) => (
+            <button
+              key={script.id}
+              onClick={() => setSelectedScript(script.id)}
+              className={`text-left p-4 rounded-xl border transition-all ${
+                selectedScript === script.id
+                  ? 'border-gold bg-gold/5'
+                  : 'border-border bg-surface hover:border-border hover:bg-surface-hover'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs text-muted mr-2">#{script.rank}</span>
+                  <span className="font-medium">{script.title}</span>
+                  <span className="text-muted text-sm ml-2">({script.year})</span>
+                </div>
+                <span className="text-xs text-muted">
+                  {script.total_chunks} chunks
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Mode Selection */}
+      <div className="mb-8">
+        <label className="block text-sm text-muted mb-3">Selection Mode</label>
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={() => setMode('auto')}
+            className={`p-4 rounded-xl border text-left transition-all ${
+              mode === 'auto'
+                ? 'border-gold bg-gold/5'
+                : 'border-border bg-surface hover:bg-surface-hover'
+            }`}
+          >
+            <div className="font-medium mb-1">Auto</div>
+            <p className="text-xs text-muted">
+              System picks the best scene based on participant count and coverage gaps.
+            </p>
+          </button>
+          <button
+            onClick={() => setMode('pick')}
+            className={`p-4 rounded-xl border text-left transition-all ${
+              mode === 'pick'
+                ? 'border-gold bg-gold/5'
+                : 'border-border bg-surface hover:bg-surface-hover'
+            }`}
+          >
+            <div className="font-medium mb-1">Pick</div>
+            <p className="text-xs text-muted">
+              Choose a specific act or scene to rehearse.
+            </p>
+          </button>
+        </div>
+      </div>
+
+      {/* Create Button */}
+      <button
+        onClick={createRoom}
+        disabled={!selectedScript || creating}
+        className="w-full py-3 bg-gold text-black rounded-xl font-semibold text-lg hover:bg-gold-dim transition-colors disabled:opacity-50"
+      >
+        {creating ? 'Creating...' : 'Create Stage'}
+      </button>
+    </div>
+  );
+}
