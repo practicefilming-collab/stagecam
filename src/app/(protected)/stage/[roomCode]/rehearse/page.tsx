@@ -5,7 +5,6 @@ import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useMediaDevices } from '@/hooks/use-media-devices';
 import { useRecording } from '@/hooks/use-recording';
-import { STORAGE_BUCKETS } from '@/lib/constants';
 import type { Chunk, AssignedChunk, Room, Script } from '@/lib/types';
 
 export default function RehearsePage() {
@@ -95,41 +94,56 @@ export default function RehearsePage() {
     setUploadError('');
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setUploadError('Not authenticated');
-        setUploading(false);
-        return;
-      }
-
       const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
-      const contentType = mimeType.includes('mp4') ? 'video/mp4' : 'video/webm';
-      const timestamp = Date.now();
-      const path = `${room.script_id}/${currentChunk.id}/${user.id}_${timestamp}.${ext}`;
 
-      // Upload to storage
-      const { error: storageErr } = await supabase.storage
-        .from(STORAGE_BUCKETS.RECORDINGS)
-        .upload(path, blob, { contentType });
-
-      if (storageErr) {
-        setUploadError(`Upload failed: ${storageErr.message}`);
-        setUploading(false);
-        return;
-      }
-
-      // Create recording record
-      const { error: insertErr } = await supabase.from('recordings').insert({
-        chunk_id: currentChunk.id,
-        user_id: user.id,
-        room_id: room.id,
-        video_url: path,
-        duration_seconds: duration,
-        format: ext,
+      // 1. Get presigned URL from our API
+      const presignRes = await fetch('/api/recordings/upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scriptId: room.script_id,
+          chunkId: currentChunk.id,
+          ext,
+        }),
       });
 
-      if (insertErr) {
-        setUploadError(`Save failed: ${insertErr.message}`);
+      if (!presignRes.ok) {
+        const err = await presignRes.json();
+        setUploadError(`Presign failed: ${err.error}`);
+        setUploading(false);
+        return;
+      }
+
+      const { url, key, contentType } = await presignRes.json();
+
+      // 2. Upload directly to R2
+      const uploadRes = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': contentType },
+        body: blob,
+      });
+
+      if (!uploadRes.ok) {
+        setUploadError(`Upload failed: ${uploadRes.status} ${uploadRes.statusText}`);
+        setUploading(false);
+        return;
+      }
+
+      // 3. Save recording metadata via API
+      const saveRes = await fetch('/api/recordings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chunk_id: currentChunk.id,
+          room_id: room.id,
+          video_url: key,
+          duration_seconds: duration,
+        }),
+      });
+
+      if (!saveRes.ok) {
+        const err = await saveRes.json();
+        setUploadError(`Save failed: ${err.error}`);
         setUploading(false);
         return;
       }
