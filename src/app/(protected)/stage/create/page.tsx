@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { generateRoomCode } from '@/lib/utils';
 import type { Script, SelectionMode } from '@/lib/types';
 
 export default function CreateStagePage() {
@@ -31,31 +30,26 @@ export default function CreateStagePage() {
     if (!selectedScript) return;
     setCreating(true);
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    try {
+      const res = await fetch('/api/rooms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          script_id: selectedScript,
+          selection_mode: mode,
+        }),
+      });
 
-    const roomCode = generateRoomCode();
+      if (!res.ok) {
+        setCreating(false);
+        return;
+      }
 
-    const { error } = await supabase.from('rooms').insert({
-      creator_id: user.id,
-      script_id: selectedScript,
-      selection_mode: mode,
-      room_code: roomCode,
-    });
-
-    if (error) {
+      const room = await res.json();
+      router.push(`/stage/${room.room_code}`);
+    } catch {
       setCreating(false);
-      return;
     }
-
-    // Join as participant (creator)
-    await supabase.from('room_participants').insert({
-      room_id: roomCode, // will be replaced by actual room id
-      user_id: user.id,
-      is_creator: true,
-    });
-
-    router.push(`/stage/${roomCode}`);
   };
 
   if (loading) {
