@@ -70,7 +70,8 @@ export function useRecording() {
 
     mediaRecorderRef.current = recorder;
     startTimeRef.current = Date.now();
-    recorder.start(1000);
+    // No timeslice arg — iOS Safari doesn't support start(timeslice) reliably
+    recorder.start();
     setState('recording');
 
     timerRef.current = setTimeout(() => {

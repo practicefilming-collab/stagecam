@@ -185,42 +185,56 @@ export default function RehearsePage() {
       {/* Split screen */}
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
         {/* Webcam / Playback */}
-        <div className="relative bg-black flex items-center justify-center h-[35vh] lg:h-auto lg:flex-1 flex-shrink-0">
-          {mediaError && !isRecorded ? (
-            <div className="text-center p-4">
-              <p className="text-red-400 text-sm mb-3">{mediaError}</p>
-              <button
-                onClick={requestPermission}
-                className="px-4 py-2 bg-surface border border-border rounded-lg text-sm"
-              >
-                Allow Camera
-              </button>
-            </div>
-          ) : isRecorded && previewUrl ? (
-            /* Playback preview of recorded video */
+        <div className="relative bg-black h-[35vh] lg:h-auto lg:flex-1 flex-shrink-0 overflow-hidden">
+          {/* Live camera feed — always mounted, hidden during playback */}
+          <video
+            key="live-camera"
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            className={`absolute inset-0 w-full h-full object-cover ${isRecorded ? 'hidden' : ''}`}
+          />
+
+          {/* Playback preview — shown after recording */}
+          {isRecorded && previewUrl && (
             <video
+              key="playback"
               ref={playbackRef}
               src={previewUrl}
               controls
               playsInline
-              className="w-full h-full object-contain bg-black"
+              className="absolute inset-0 w-full h-full object-contain bg-black"
             />
-          ) : (
-            /* Live camera feed */
-            <video
-              ref={videoRef}
-              autoPlay
-              muted
-              playsInline
-              className="w-full h-full object-cover"
-            />
+          )}
+
+          {/* Camera error */}
+          {mediaError && !isRecorded && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="text-center p-4">
+                <p className="text-red-400 text-sm mb-3">{mediaError}</p>
+                <button
+                  onClick={requestPermission}
+                  className="px-4 py-2 bg-surface border border-border rounded-lg text-sm"
+                >
+                  Allow Camera
+                </button>
+              </div>
+            </div>
           )}
 
           {/* Recording indicator */}
           {recState === 'recording' && (
-            <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/60 px-2 py-1 rounded-full">
+            <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/60 px-2 py-1 rounded-full z-10">
               <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
               <span className="text-red-400 text-xs font-mono">REC</span>
+            </div>
+          )}
+
+          {/* Recorded badge */}
+          {isRecorded && (
+            <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/60 px-2 py-1 rounded-full z-10">
+              <span className="text-green-400 text-xs">Recorded ({duration}s) — tap to play</span>
             </div>
           )}
         </div>

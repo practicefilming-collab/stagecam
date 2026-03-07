@@ -48,7 +48,7 @@ export function useMediaDevices() {
     if (el && streamRef.current && el.srcObject !== streamRef.current) {
       attachStream(streamRef.current);
     }
-  });
+  }, [stream, attachStream]);
 
   const stopStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
