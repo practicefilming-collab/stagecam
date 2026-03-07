@@ -156,7 +156,7 @@ export default function RehearsePage() {
   const isRecorded = recState === 'recorded';
 
   return (
-    <div className="h-[100dvh] flex flex-col overflow-hidden" style={{ paddingTop: '3.5rem' }}>
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-background" style={{ paddingTop: '3.5rem' }}>
       {/* Progress bar */}
       <div className="h-1 bg-border flex-shrink-0">
         <div
@@ -185,7 +185,7 @@ export default function RehearsePage() {
       {/* Split screen */}
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
         {/* Webcam / Playback */}
-        <div className="relative bg-black h-[35vh] lg:h-auto lg:flex-1 flex-shrink-0 overflow-hidden">
+        <div className="relative bg-black flex-shrink-0 overflow-hidden" style={{ height: '30vh' }}>
           {/* Live camera feed — always mounted, hidden during playback */}
           <video
             key="live-camera"
@@ -193,7 +193,8 @@ export default function RehearsePage() {
             autoPlay
             muted
             playsInline
-            className={`absolute inset-0 w-full h-full object-cover ${isRecorded ? 'hidden' : ''}`}
+            style={{ display: isRecorded ? 'none' : 'block' }}
+            className="absolute inset-0 w-full h-full object-cover"
           />
 
           {/* Playback preview — shown after recording */}
@@ -240,7 +241,7 @@ export default function RehearsePage() {
         </div>
 
         {/* Script text */}
-        <div className="flex-1 min-h-0 bg-surface p-4 lg:p-6 overflow-y-auto lg:flex-1">
+        <div className="flex-1 min-h-0 bg-surface p-4 lg:p-6 overflow-y-auto">
           {currentChunk?.type === 'scene_heading' && (
             <div className="text-gold text-xs uppercase tracking-wider mb-3">
               Scene Heading
@@ -257,8 +258,8 @@ export default function RehearsePage() {
         </div>
       </div>
 
-      {/* Controls */}
-      <div className="px-4 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))] border-t border-border bg-surface flex items-center justify-center gap-4 flex-shrink-0">
+      {/* Controls — extra bottom padding to clear Safari URL bar */}
+      <div className="px-4 pt-3 pb-8 border-t border-border bg-surface flex items-center justify-center gap-4 flex-shrink-0" style={{ paddingBottom: 'max(2rem, env(safe-area-inset-bottom, 0px) + 1rem)' }}>
         {recState === 'idle' && (
           <button
             onClick={() => stream && startRecording(stream)}
