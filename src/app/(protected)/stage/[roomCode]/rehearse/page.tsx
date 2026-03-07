@@ -24,6 +24,7 @@ export default function RehearsePage() {
   const [currentChunkIdx, setCurrentChunkIdx] = useState(0);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
   const playbackRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -91,44 +92,60 @@ export default function RehearsePage() {
   const uploadRecording = useCallback(async () => {
     if (!blob || !currentChunk || !room) return;
     setUploading(true);
+    setUploadError('');
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setUploadError('Not authenticated');
+        setUploading(false);
+        return;
+      }
 
-    const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
-    const contentType = mimeType.includes('mp4') ? 'video/mp4' : 'video/webm';
-    const timestamp = Date.now();
-    const path = `${room.script_id}/${currentChunk.id}/${user.id}_${timestamp}.${ext}`;
+      const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+      const contentType = mimeType.includes('mp4') ? 'video/mp4' : 'video/webm';
+      const timestamp = Date.now();
+      const path = `${room.script_id}/${currentChunk.id}/${user.id}_${timestamp}.${ext}`;
 
-    // Upload to storage
-    const { error: uploadError } = await supabase.storage
-      .from(STORAGE_BUCKETS.RECORDINGS)
-      .upload(path, blob, { contentType });
+      // Upload to storage
+      const { error: storageErr } = await supabase.storage
+        .from(STORAGE_BUCKETS.RECORDINGS)
+        .upload(path, blob, { contentType });
 
-    if (uploadError) {
-      console.error('Upload failed:', uploadError);
+      if (storageErr) {
+        setUploadError(`Upload failed: ${storageErr.message}`);
+        setUploading(false);
+        return;
+      }
+
+      // Create recording record
+      const { error: insertErr } = await supabase.from('recordings').insert({
+        chunk_id: currentChunk.id,
+        user_id: user.id,
+        room_id: room.id,
+        video_url: path,
+        duration_seconds: duration,
+        format: ext,
+      });
+
+      if (insertErr) {
+        setUploadError(`Save failed: ${insertErr.message}`);
+        setUploading(false);
+        return;
+      }
+
+      // Move to next chunk or finish
+      if (currentChunkIdx < chunks.length - 1) {
+        setCurrentChunkIdx((prev) => prev + 1);
+        reset();
+      } else {
+        router.push(`/stage/${roomCode}/complete`);
+      }
       setUploading(false);
-      return;
+    } catch (err) {
+      setUploadError(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setUploading(false);
     }
-
-    // Create recording record
-    await supabase.from('recordings').insert({
-      chunk_id: currentChunk.id,
-      user_id: user.id,
-      room_id: room.id,
-      video_url: path,
-      duration_seconds: duration,
-      format: ext,
-    });
-
-    // Move to next chunk or finish
-    if (currentChunkIdx < chunks.length - 1) {
-      setCurrentChunkIdx((prev) => prev + 1);
-      reset();
-    } else {
-      router.push(`/stage/${roomCode}/complete`);
-    }
-    setUploading(false);
   }, [blob, currentChunk, room, duration, mimeType, currentChunkIdx, chunks.length]);
 
   if (loading) {
@@ -257,6 +274,13 @@ export default function RehearsePage() {
           </p>
         </div>
       </div>
+
+      {/* Error message */}
+      {uploadError && (
+        <div className="px-4 py-2 bg-red-500/10 border-t border-red-500/30 flex-shrink-0">
+          <p className="text-red-400 text-xs text-center">{uploadError}</p>
+        </div>
+      )}
 
       {/* Controls — extra bottom padding to clear Safari URL bar */}
       <div className="px-4 pt-3 pb-8 border-t border-border bg-surface flex items-center justify-center gap-4 flex-shrink-0" style={{ paddingBottom: 'max(2rem, env(safe-area-inset-bottom, 0px) + 1rem)' }}>
