@@ -27,6 +27,13 @@ export function useMediaDevices() {
     }
   };
 
+  // Ensure videoRef stays in sync with stream (handles late ref attachment)
+  useEffect(() => {
+    if (stream && videoRef.current && videoRef.current.srcObject !== stream) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
   const stopStream = () => {
     stream?.getTracks().forEach((track) => track.stop());
     setStream(null);

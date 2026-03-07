@@ -151,9 +151,9 @@ export default function RehearsePage() {
   }
 
   return (
-    <div className="min-h-[calc(100vh-3.5rem)] flex flex-col">
+    <div className="h-[calc(100vh-3.5rem)] flex flex-col overflow-hidden">
       {/* Progress bar */}
-      <div className="h-1 bg-border">
+      <div className="h-1 bg-border flex-shrink-0">
         <div
           className="h-full bg-gold transition-all"
           style={{ width: `${((currentChunkIdx + 1) / chunks.length) * 100}%` }}
@@ -161,7 +161,7 @@ export default function RehearsePage() {
       </div>
 
       {/* Header info */}
-      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+      <div className="px-4 py-2 border-b border-border flex items-center justify-between flex-shrink-0">
         <div>
           <span className="text-sm text-muted">
             {script?.title} - Chunk {currentChunkIdx + 1}/{chunks.length}
@@ -178,9 +178,9 @@ export default function RehearsePage() {
       </div>
 
       {/* Split screen */}
-      <div className="flex-1 grid grid-rows-2 lg:grid-rows-1 lg:grid-cols-2">
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
         {/* Webcam */}
-        <div className="relative bg-black flex items-center justify-center">
+        <div className="relative bg-black flex items-center justify-center h-[40vh] lg:h-auto lg:flex-1">
           {mediaError ? (
             <div className="text-center p-4">
               <p className="text-red-400 text-sm mb-3">{mediaError}</p>
@@ -203,35 +203,33 @@ export default function RehearsePage() {
 
           {/* Recording indicator */}
           {recState === 'recording' && (
-            <div className="absolute top-4 left-4 flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
+            <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/60 px-2 py-1 rounded-full">
+              <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
               <span className="text-red-400 text-xs font-mono">REC</span>
             </div>
           )}
         </div>
 
         {/* Script text */}
-        <div className="bg-surface p-6 flex flex-col justify-between overflow-y-auto">
-          <div>
-            {currentChunk?.type === 'scene_heading' && (
-              <div className="text-gold text-xs uppercase tracking-wider mb-4">
-                Scene Heading
-              </div>
-            )}
-            {currentAssignment?.character && (
-              <div className="text-gold font-semibold mb-3">
-                {currentAssignment.character}
-              </div>
-            )}
-            <p className="text-lg leading-relaxed whitespace-pre-wrap">
-              {currentChunk?.tts_text ?? currentChunk?.chunk_text}
-            </p>
-          </div>
+        <div className="flex-1 min-h-0 bg-surface p-4 lg:p-6 overflow-y-auto lg:flex-1">
+          {currentChunk?.type === 'scene_heading' && (
+            <div className="text-gold text-xs uppercase tracking-wider mb-3">
+              Scene Heading
+            </div>
+          )}
+          {currentAssignment?.character && (
+            <div className="text-gold font-semibold mb-2">
+              {currentAssignment.character}
+            </div>
+          )}
+          <p className="text-base lg:text-lg leading-relaxed whitespace-pre-wrap">
+            {currentChunk?.tts_text ?? currentChunk?.chunk_text}
+          </p>
         </div>
       </div>
 
       {/* Controls */}
-      <div className="px-4 py-4 border-t border-border bg-surface flex items-center justify-center gap-4">
+      <div className="px-4 py-3 border-t border-border bg-surface flex items-center justify-center gap-4 flex-shrink-0">
         {recState === 'idle' && (
           <button
             onClick={() => stream && startRecording(stream)}
