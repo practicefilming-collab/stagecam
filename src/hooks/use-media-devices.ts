@@ -1,49 +1,66 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export function useMediaDevices() {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasPermission, setHasPermission] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
-  const requestPermission = async () => {
+  const attachStream = useCallback((mediaStream: MediaStream) => {
+    if (videoRef.current) {
+      videoRef.current.setAttribute('playsinline', '');
+      videoRef.current.setAttribute('webkit-playsinline', '');
+      videoRef.current.muted = true;
+      videoRef.current.srcObject = mediaStream;
+      videoRef.current.play().catch(() => {
+        // Autoplay may fail silently on some browsers
+      });
+    }
+  }, []);
+
+  const requestPermission = useCallback(async () => {
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: 'user',
+        },
         audio: true,
       });
+      streamRef.current = mediaStream;
       setStream(mediaStream);
       setHasPermission(true);
       setError(null);
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-      }
-    } catch (err) {
+      attachStream(mediaStream);
+    } catch {
       setError('Camera/microphone access denied. Please allow access to record.');
       setHasPermission(false);
     }
-  };
+  }, [attachStream]);
 
-  // Ensure videoRef stays in sync with stream (handles late ref attachment)
+  // Re-attach stream when videoRef mounts (handles late attachment)
   useEffect(() => {
-    if (stream && videoRef.current && videoRef.current.srcObject !== stream) {
-      videoRef.current.srcObject = stream;
+    const el = videoRef.current;
+    if (el && streamRef.current && el.srcObject !== streamRef.current) {
+      attachStream(streamRef.current);
     }
-  }, [stream]);
+  });
 
-  const stopStream = () => {
-    stream?.getTracks().forEach((track) => track.stop());
+  const stopStream = useCallback(() => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
     setStream(null);
-  };
+  }, []);
 
   useEffect(() => {
     return () => {
-      stream?.getTracks().forEach((track) => track.stop());
+      streamRef.current?.getTracks().forEach((track) => track.stop());
     };
-  }, [stream]);
+  }, []);
 
   return { stream, error, hasPermission, videoRef, requestPermission, stopStream };
 }

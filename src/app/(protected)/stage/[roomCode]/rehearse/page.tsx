@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useMediaDevices } from '@/hooks/use-media-devices';
@@ -15,7 +15,7 @@ export default function RehearsePage() {
   const supabase = createClient();
 
   const { stream, error: mediaError, hasPermission, videoRef, requestPermission } = useMediaDevices();
-  const { state: recState, setState: setRecState, blob, duration, startRecording, stopRecording, reset } = useRecording();
+  const { state: recState, blob, previewUrl, duration, mimeType, startRecording, stopRecording, reset } = useRecording();
 
   const [room, setRoom] = useState<Room | null>(null);
   const [script, setScript] = useState<Script | null>(null);
@@ -24,6 +24,7 @@ export default function RehearsePage() {
   const [currentChunkIdx, setCurrentChunkIdx] = useState(0);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const playbackRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     async function load() {
@@ -94,13 +95,15 @@ export default function RehearsePage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
+    const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+    const contentType = mimeType.includes('mp4') ? 'video/mp4' : 'video/webm';
     const timestamp = Date.now();
-    const path = `${room.script_id}/${currentChunk.id}/${user.id}_${timestamp}.webm`;
+    const path = `${room.script_id}/${currentChunk.id}/${user.id}_${timestamp}.${ext}`;
 
     // Upload to storage
     const { error: uploadError } = await supabase.storage
       .from(STORAGE_BUCKETS.RECORDINGS)
-      .upload(path, blob, { contentType: 'video/webm' });
+      .upload(path, blob, { contentType });
 
     if (uploadError) {
       console.error('Upload failed:', uploadError);
@@ -115,6 +118,7 @@ export default function RehearsePage() {
       room_id: room.id,
       video_url: path,
       duration_seconds: duration,
+      format: ext,
     });
 
     // Move to next chunk or finish
@@ -122,11 +126,10 @@ export default function RehearsePage() {
       setCurrentChunkIdx((prev) => prev + 1);
       reset();
     } else {
-      // All chunks done
       router.push(`/stage/${roomCode}/complete`);
     }
     setUploading(false);
-  }, [blob, currentChunk, room, duration, currentChunkIdx, chunks.length]);
+  }, [blob, currentChunk, room, duration, mimeType, currentChunkIdx, chunks.length]);
 
   if (loading) {
     return (
@@ -150,8 +153,10 @@ export default function RehearsePage() {
     );
   }
 
+  const isRecorded = recState === 'recorded';
+
   return (
-    <div className="h-[calc(100vh-3.5rem)] flex flex-col overflow-hidden">
+    <div className="h-[100dvh] flex flex-col overflow-hidden" style={{ paddingTop: '3.5rem' }}>
       {/* Progress bar */}
       <div className="h-1 bg-border flex-shrink-0">
         <div
@@ -179,9 +184,9 @@ export default function RehearsePage() {
 
       {/* Split screen */}
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
-        {/* Webcam */}
-        <div className="relative bg-black flex items-center justify-center h-[40vh] lg:h-auto lg:flex-1">
-          {mediaError ? (
+        {/* Webcam / Playback */}
+        <div className="relative bg-black flex items-center justify-center h-[35vh] lg:h-auto lg:flex-1 flex-shrink-0">
+          {mediaError && !isRecorded ? (
             <div className="text-center p-4">
               <p className="text-red-400 text-sm mb-3">{mediaError}</p>
               <button
@@ -191,7 +196,17 @@ export default function RehearsePage() {
                 Allow Camera
               </button>
             </div>
+          ) : isRecorded && previewUrl ? (
+            /* Playback preview of recorded video */
+            <video
+              ref={playbackRef}
+              src={previewUrl}
+              controls
+              playsInline
+              className="w-full h-full object-contain bg-black"
+            />
           ) : (
+            /* Live camera feed */
             <video
               ref={videoRef}
               autoPlay
@@ -229,7 +244,7 @@ export default function RehearsePage() {
       </div>
 
       {/* Controls */}
-      <div className="px-4 py-3 border-t border-border bg-surface flex items-center justify-center gap-4 flex-shrink-0">
+      <div className="px-4 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))] border-t border-border bg-surface flex items-center justify-center gap-4 flex-shrink-0">
         {recState === 'idle' && (
           <button
             onClick={() => stream && startRecording(stream)}
