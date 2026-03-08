@@ -13,8 +13,8 @@ const OUTPUT_HEIGHT = 1280;
 const OUTPUT_FPS = 30;
 const FFMPEG_BIN = process.env.FFMPEG_PATH || ffmpegInstaller.path || 'ffmpeg';
 const FFPROBE_BIN = process.env.FFPROBE_PATH || ffprobeInstaller.path || 'ffprobe';
-const FONT_SMALL = path.join(process.cwd(), 'assets', 'fonts', 'open-sans-32-white.fnt');
-const FONT_MEDIUM = path.join(process.cwd(), 'assets', 'fonts', 'open-sans-64-white.fnt');
+const FONT_SMALL = path.join(process.cwd(), 'public', 'fonts', 'open-sans-32-white.fnt');
+const FONT_MEDIUM = path.join(process.cwd(), 'public', 'fonts', 'open-sans-64-white.fnt');
 
 function runProcess(command: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
