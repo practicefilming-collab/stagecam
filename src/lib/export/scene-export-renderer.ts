@@ -1,9 +1,11 @@
 import { PlaybackItem, ScenePlaybackData } from '@/lib/player/build-scene-playback';
 import { slugify } from '@/lib/utils';
 import { promises as fs } from 'fs';
+import { existsSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
+import { createRequire } from 'module';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import ffprobeInstaller from '@ffprobe-installer/ffprobe';
 import { Jimp, loadFont, HorizontalAlign } from 'jimp';
@@ -13,8 +15,33 @@ const OUTPUT_HEIGHT = 1280;
 const OUTPUT_FPS = 30;
 const FFMPEG_BIN = process.env.FFMPEG_PATH || ffmpegInstaller.path || 'ffmpeg';
 const FFPROBE_BIN = process.env.FFPROBE_PATH || ffprobeInstaller.path || 'ffprobe';
-const FONT_SMALL = path.join(process.cwd(), 'public', 'fonts', 'open-sans-32-white.fnt');
-const FONT_MEDIUM = path.join(process.cwd(), 'public', 'fonts', 'open-sans-64-white.fnt');
+const require = createRequire(import.meta.url);
+
+function resolvePluginFontPath(relativePath: string): string | null {
+  try {
+    const pluginPkg = require.resolve('@jimp/plugin-print/package.json');
+    return path.join(path.dirname(pluginPkg), relativePath);
+  } catch {
+    return null;
+  }
+}
+
+function resolveFontPath(fontFile: string): string | null {
+  const candidates = [
+    path.join(process.cwd(), 'public', 'fonts', fontFile),
+    path.join(process.cwd(), 'assets', 'fonts', fontFile),
+    resolvePluginFontPath(path.join('fonts', 'open-sans', fontFile.replace('.fnt', ''), fontFile)),
+    resolvePluginFontPath(path.join('dist', 'fonts', 'open-sans', fontFile.replace('.fnt', ''), fontFile)),
+  ].filter(Boolean) as string[];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+const FONT_SMALL = resolveFontPath('open-sans-32-white.fnt');
+const FONT_MEDIUM = resolveFontPath('open-sans-64-white.fnt');
 
 function runProcess(command: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -30,6 +57,34 @@ function runProcess(command: string, args: string[]): Promise<void> {
         return;
       }
       reject(new Error(`${command} failed with code ${code}: ${stderr.slice(-1200)}`));
+    });
+  });
+}
+
+async function probeDurationSeconds(inputUrl: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const args = ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', inputUrl];
+    const child = spawn(FFPROBE_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on('error', (error) => reject(error));
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`ffprobe failed (${code}): ${stderr.slice(-1200)}`));
+        return;
+      }
+      const duration = Number.parseFloat(stdout.trim());
+      if (!Number.isFinite(duration) || duration <= 0) {
+        reject(new Error(`Invalid media duration: ${stdout.trim()}`));
+        return;
+      }
+      resolve(duration);
     });
   });
 }
@@ -64,6 +119,7 @@ let smallFontPromise: Promise<Awaited<ReturnType<typeof loadFont>>> | null = nul
 let mediumFontPromise: Promise<Awaited<ReturnType<typeof loadFont>>> | null = null;
 
 async function getSmallFont() {
+  if (!FONT_SMALL) throw new Error('Missing small font asset');
   if (!smallFontPromise) {
     smallFontPromise = loadFont(FONT_SMALL);
   }
@@ -71,6 +127,7 @@ async function getSmallFont() {
 }
 
 async function getMediumFont() {
+  if (!FONT_MEDIUM) throw new Error('Missing medium font asset');
   if (!mediumFontPromise) {
     mediumFontPromise = loadFont(FONT_MEDIUM);
   }
@@ -125,23 +182,37 @@ async function renderTtsSegment(outputPath: string, item: PlaybackItem): Promise
   }
 
   const cardPath = `${outputPath}.png`;
-  await createTtsTextCard(cardPath, item);
+  const ttsDuration = await probeDurationSeconds(item.ttsUrl);
+  try {
+    await createTtsTextCard(cardPath, item);
 
-  const args = [
-    '-y',
-    '-loop',
-    '1',
-    '-i',
-    cardPath,
-    '-i',
-    item.ttsUrl,
-    '-map', '0:v:0', '-map', '1:a:0', '-shortest', '-r', `${OUTPUT_FPS}`,
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p',
-    '-c:a', 'aac', '-ar', '48000', '-ac', '2', '-movflags', '+faststart', outputPath,
-  ];
+    const args = [
+      '-y',
+      '-loop',
+      '1',
+      '-i',
+      cardPath,
+      '-i',
+      item.ttsUrl,
+      '-map', '0:v:0', '-map', '1:a:0', '-shortest', '-r', `${OUTPUT_FPS}`,
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac', '-ar', '48000', '-ac', '2', '-movflags', '+faststart', outputPath,
+    ];
 
-  await runProcess(FFMPEG_BIN, args);
-  await fs.rm(cardPath, { force: true });
+    await runProcess(FFMPEG_BIN, args);
+  } catch (error) {
+    // If bitmap font assets are unavailable in the runtime bundle, still produce export.
+    console.warn('Falling back to black TTS card (font assets unavailable):', error);
+    const fallback = [
+      '-y', '-f', 'lavfi', '-i', `color=c=black:s=${OUTPUT_WIDTH}x${OUTPUT_HEIGHT}:d=${ttsDuration}`, '-i', item.ttsUrl,
+      '-map', '0:v:0', '-map', '1:a:0', '-shortest', '-r', `${OUTPUT_FPS}`,
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac', '-ar', '48000', '-ac', '2', '-movflags', '+faststart', outputPath,
+    ];
+    await runProcess(FFMPEG_BIN, fallback);
+  } finally {
+    await fs.rm(cardPath, { force: true });
+  }
 }
 
 async function buildSegment(outputPath: string, item: PlaybackItem): Promise<void> {
