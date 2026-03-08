@@ -15,8 +15,8 @@ export async function GET() {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  // Fetch all profiles
-  const { data: profiles } = await supabase
+  // Fetch all profiles (serviceClient bypasses RLS)
+  const { data: profiles } = await serviceClient
     .from('profiles')
     .select('id, auth_provider, platform_username, display_name, created_at')
     .order('created_at', { ascending: false });
@@ -42,8 +42,8 @@ export async function GET() {
     }
   }
 
-  // Get recording stats per user, joining rooms to get script_id
-  const { data: recordings } = await supabase
+  // Get recording stats per user, joining rooms to get script_id (serviceClient bypasses RLS)
+  const { data: recordings } = await serviceClient
     .from('recordings')
     .select('user_id, room_id, size_bytes, rooms!inner(script_id)');
 
@@ -78,5 +78,22 @@ export async function GET() {
     };
   });
 
-  return NextResponse.json({ users });
+  // Compute totals
+  const allScripts = new Set<string>();
+  let totalRecordings = 0;
+  let totalStorage = 0;
+  for (const stats of userStats.values()) {
+    for (const sid of stats.scripts) allScripts.add(sid);
+    totalRecordings += stats.totalRecordings;
+    totalStorage += stats.storageBytes;
+  }
+
+  const totals = {
+    totalUsers: profiles.length,
+    totalScripts: allScripts.size,
+    totalRecordings,
+    totalStorage,
+  };
+
+  return NextResponse.json({ users, totals });
 }

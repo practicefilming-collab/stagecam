@@ -4,6 +4,13 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
+interface Totals {
+  totalUsers: number;
+  totalScripts: number;
+  totalRecordings: number;
+  totalStorage: number;
+}
+
 interface UserStat {
   id: string;
   displayName: string;
@@ -49,6 +56,7 @@ function providerBadge(provider: string) {
 export default function UserStatsPage() {
   const router = useRouter();
   const [users, setUsers] = useState<UserStat[]>([]);
+  const [totals, setTotals] = useState<Totals | null>(null);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
 
@@ -63,6 +71,7 @@ export default function UserStatsPage() {
       if (res.ok) {
         const data = await res.json();
         setUsers(data.users);
+        setTotals(data.totals);
       }
       setLoading(false);
     }
@@ -90,6 +99,25 @@ export default function UserStatsPage() {
       </Link>
 
       <h1 className="text-2xl font-bold text-gold mt-3 mb-8">Users</h1>
+
+      {totals && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+          {[
+            { label: 'Users', value: totals.totalUsers },
+            { label: 'Scripts', value: totals.totalScripts },
+            { label: 'Recordings', value: totals.totalRecordings },
+            { label: 'Storage', value: formatStorage(totals.totalStorage) },
+          ].map((item) => (
+            <div
+              key={item.label}
+              className="bg-surface border border-gold/20 rounded-xl p-4 text-center"
+            >
+              <p className="text-2xl font-bold text-gold">{item.value}</p>
+              <p className="text-xs text-muted mt-1">{item.label}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="space-y-3">
         {users.map((u) => (
