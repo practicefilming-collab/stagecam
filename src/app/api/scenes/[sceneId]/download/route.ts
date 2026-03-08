@@ -6,12 +6,16 @@ import { promises as fs } from 'fs';
 import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
+import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
+import ffprobeInstaller from '@ffprobe-installer/ffprobe';
 
 export const runtime = 'nodejs';
 
 const OUTPUT_WIDTH = 720;
 const OUTPUT_HEIGHT = 1280;
 const OUTPUT_FPS = 30;
+const FFMPEG_BIN = process.env.FFMPEG_PATH || ffmpegInstaller.path || 'ffmpeg';
+const FFPROBE_BIN = process.env.FFPROBE_PATH || ffprobeInstaller.path || 'ffprobe';
 
 function runProcess(command: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -66,7 +70,7 @@ async function probeDurationSeconds(inputUrl: string): Promise<number> {
       'default=noprint_wrappers=1:nokey=1',
       inputUrl,
     ];
-    const child = spawn('ffprobe', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(FFPROBE_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
 
@@ -115,7 +119,7 @@ async function renderRecordingSegment(outputPath: string, recordingUrl: string):
     '+faststart',
     outputPath,
   ];
-  await runProcess('ffmpeg', args);
+  await runProcess(FFMPEG_BIN, args);
 }
 
 async function renderTtsSegment(outputPath: string, item: PlaybackItem): Promise<void> {
@@ -169,7 +173,7 @@ async function renderTtsSegment(outputPath: string, item: PlaybackItem): Promise
     outputPath,
   ];
 
-  await runProcess('ffmpeg', args);
+  await runProcess(FFMPEG_BIN, args);
 }
 
 async function buildSegment(outputPath: string, item: PlaybackItem): Promise<void> {
@@ -183,7 +187,7 @@ async function buildSegment(outputPath: string, item: PlaybackItem): Promise<voi
 async function concatenateSegments(segmentPaths: string[], outputPath: string, listPath: string): Promise<void> {
   const lines = segmentPaths.map((segmentPath) => `file '${segmentPath.replace(/'/g, "'\\''")}'`);
   await fs.writeFile(listPath, `${lines.join('\n')}\n`, 'utf8');
-  await runProcess('ffmpeg', [
+  await runProcess(FFMPEG_BIN, [
     '-y',
     '-f',
     'concat',
@@ -214,10 +218,10 @@ export async function GET(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const [hasFfmpeg, hasFfprobe] = await Promise.all([hasCommand('ffmpeg'), hasCommand('ffprobe')]);
+  const [hasFfmpeg, hasFfprobe] = await Promise.all([hasCommand(FFMPEG_BIN), hasCommand(FFPROBE_BIN)]);
   if (!hasFfmpeg || !hasFfprobe) {
     return NextResponse.json(
-      { error: 'Scene export is unavailable because ffmpeg/ffprobe are not installed on the server.' },
+      { error: 'Scene export is unavailable because ffmpeg/ffprobe binaries could not be resolved.' },
       { status: 503 }
     );
   }
