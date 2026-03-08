@@ -9,7 +9,10 @@ interface HistoryItem {
   room_code: string;
   status: string;
   created_at: string;
+  selected_scene_id: string | null;
   scripts: { title: string; year: number };
+  scenes: { scene_heading: string | null } | null;
+  recording_count: number;
 }
 
 export default function HistoryPage() {
@@ -50,30 +53,52 @@ export default function HistoryPage() {
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {rooms.map((room) => (
-            <Link
-              key={room.id}
-              href={`/panel/${room.id}`}
-              className="bg-surface border border-border rounded-xl p-5 hover:border-gold/30 transition-all group"
-            >
-              <h3 className="font-semibold mb-1 group-hover:text-gold transition-colors">
-                {room.scripts.title}
-              </h3>
-              <p className="text-xs text-muted mb-3">
-                {room.scripts.year} - {new Date(room.created_at).toLocaleDateString()}
-              </p>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-mono text-muted">{room.room_code}</span>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${
-                  room.status === 'closed' ? 'bg-border text-muted' :
-                  room.status === 'active' ? 'bg-green-500/10 text-green-400' :
-                  'bg-gold/10 text-gold'
-                }`}>
-                  {room.status}
-                </span>
+          {rooms.map((room) => {
+            const hasScene = !!room.selected_scene_id;
+            const inner = (
+              <>
+                <h3 className={`font-semibold mb-1 ${hasScene ? 'group-hover:text-gold' : ''} transition-colors`}>
+                  {room.scripts.title}
+                </h3>
+                {room.scenes?.scene_heading && (
+                  <p className="text-xs text-gold/60 mb-1 truncate">{room.scenes.scene_heading}</p>
+                )}
+                <p className="text-xs text-muted mb-3">
+                  {room.scripts.year} &middot; {new Date(room.created_at).toLocaleDateString()}
+                  {room.recording_count > 0 && (
+                    <span className="ml-2 text-gold/80">{room.recording_count} rec{room.recording_count !== 1 ? 's' : ''}</span>
+                  )}
+                </p>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-mono text-muted">{room.room_code}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                    room.status === 'closed' ? 'bg-border text-muted' :
+                    room.status === 'active' ? 'bg-green-500/10 text-green-400' :
+                    'bg-gold/10 text-gold'
+                  }`}>
+                    {room.status}
+                  </span>
+                </div>
+              </>
+            );
+
+            return hasScene ? (
+              <Link
+                key={room.id}
+                href={`/panel/${room.selected_scene_id}`}
+                className="bg-surface border border-border rounded-xl p-5 hover:border-gold/30 transition-all group"
+              >
+                {inner}
+              </Link>
+            ) : (
+              <div
+                key={room.id}
+                className="bg-surface border border-border rounded-xl p-5 opacity-60"
+              >
+                {inner}
               </div>
-            </Link>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

@@ -3,6 +3,13 @@
 import { useEffect, useState } from 'react';
 import RoleCall from '@/components/stats/role-call';
 
+interface Summary {
+  totalRecordings: number;
+  uniqueChunksRecorded: number;
+  scriptsContributedTo: number;
+  typeBreakdown: { dialogue: number; action: number; scene_heading: number; transition: number };
+}
+
 interface RecentSession {
   recordingId: string;
   character: string | null;
@@ -14,6 +21,7 @@ interface RecentSession {
 export default function MyStatsPage() {
   const [characters, setCharacters] = useState([]);
   const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
+  const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -23,6 +31,7 @@ export default function MyStatsPage() {
         const data = await res.json();
         setCharacters(data.characters);
         setRecentSessions(data.recentSessions);
+        setSummary(data.summary);
       }
       setLoading(false);
     }
@@ -40,6 +49,32 @@ export default function MyStatsPage() {
   return (
     <div className="max-w-2xl mx-auto px-4 py-12">
       <h1 className="text-2xl font-bold text-gold mb-8">Your Role Call</h1>
+
+      {summary && summary.totalRecordings > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+          <div className="bg-surface border border-gold/20 rounded-xl p-4 text-center">
+            <p className="text-2xl font-bold text-gold">{summary.totalRecordings}</p>
+            <p className="text-xs text-muted mt-1">Recordings</p>
+          </div>
+          <div className="bg-surface border border-gold/20 rounded-xl p-4 text-center">
+            <p className="text-2xl font-bold text-gold">{summary.uniqueChunksRecorded}</p>
+            <p className="text-xs text-muted mt-1">Unique Chunks</p>
+          </div>
+          <div className="bg-surface border border-gold/20 rounded-xl p-4 text-center">
+            <p className="text-2xl font-bold text-gold">{summary.scriptsContributedTo}</p>
+            <p className="text-xs text-muted mt-1">Scripts</p>
+          </div>
+          <div className="bg-surface border border-gold/20 rounded-xl p-4 text-center">
+            <div className="flex justify-center gap-2 text-xs">
+              {summary.typeBreakdown.dialogue > 0 && <span className="text-gold">{summary.typeBreakdown.dialogue} dlg</span>}
+              {summary.typeBreakdown.action > 0 && <span className="text-blue-400">{summary.typeBreakdown.action} act</span>}
+              {summary.typeBreakdown.scene_heading > 0 && <span className="text-purple-400">{summary.typeBreakdown.scene_heading} hdr</span>}
+              {summary.typeBreakdown.transition > 0 && <span className="text-cyan-400">{summary.typeBreakdown.transition} trn</span>}
+            </div>
+            <p className="text-xs text-muted mt-1">By Type</p>
+          </div>
+        </div>
+      )}
 
       <RoleCall characters={characters} />
 

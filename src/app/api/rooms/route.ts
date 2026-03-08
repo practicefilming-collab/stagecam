@@ -86,11 +86,32 @@ export async function GET(request: Request) {
 
   const roomIds = (participations ?? []).map((p) => p.room_id);
 
+  if (roomIds.length === 0) {
+    return NextResponse.json([]);
+  }
+
   const { data: rooms } = await supabase
     .from('rooms')
-    .select('*, scripts(title, year)')
+    .select('*, scripts(title, year), scenes(scene_heading)')
     .in('id', roomIds)
     .order('created_at', { ascending: false });
 
-  return NextResponse.json(rooms ?? []);
+  // Count recordings per room for the current user
+  const { data: recRows } = await supabase
+    .from('recordings')
+    .select('room_id')
+    .eq('user_id', user.id)
+    .in('room_id', roomIds);
+
+  const recCounts = new Map<string, number>();
+  for (const r of recRows ?? []) {
+    recCounts.set(r.room_id, (recCounts.get(r.room_id) ?? 0) + 1);
+  }
+
+  const enriched = (rooms ?? []).map((room) => ({
+    ...room,
+    recording_count: recCounts.get(room.id) ?? 0,
+  }));
+
+  return NextResponse.json(enriched);
 }

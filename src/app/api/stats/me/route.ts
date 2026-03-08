@@ -39,7 +39,16 @@ export async function GET() {
     .order('created_at', { ascending: false });
 
   if (!recordings || recordings.length === 0) {
-    return NextResponse.json({ characters: [], recentSessions: [] });
+    return NextResponse.json({
+      characters: [],
+      recentSessions: [],
+      summary: {
+        totalRecordings: 0,
+        uniqueChunksRecorded: 0,
+        scriptsContributedTo: 0,
+        typeBreakdown: { dialogue: 0, action: 0, scene_heading: 0, transition: 0 },
+      },
+    });
   }
 
   // Extract unique characters played, grouped by script
@@ -170,5 +179,25 @@ export async function GET() {
     };
   });
 
-  return NextResponse.json({ characters, recentSessions });
+  // Build summary including all recording types (not just dialogue)
+  const uniqueScriptIds = new Set<string>();
+  const typeBreakdown = { dialogue: 0, action: 0, scene_heading: 0, transition: 0 };
+  const uniqueChunkIds = new Set<string>();
+
+  for (const rec of recordings) {
+    const chunk = rec.chunks as unknown as ChunkJoin;
+    uniqueChunkIds.add(chunk.id);
+    uniqueScriptIds.add(chunk.scenes.acts.scripts.id);
+    const t = chunk.type as keyof typeof typeBreakdown;
+    if (t in typeBreakdown) typeBreakdown[t]++;
+  }
+
+  const summary = {
+    totalRecordings: recordings.length,
+    uniqueChunksRecorded: uniqueChunkIds.size,
+    scriptsContributedTo: uniqueScriptIds.size,
+    typeBreakdown,
+  };
+
+  return NextResponse.json({ characters, recentSessions, summary });
 }

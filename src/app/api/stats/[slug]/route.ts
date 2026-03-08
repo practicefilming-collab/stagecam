@@ -78,14 +78,12 @@ export async function GET(
     // 3. All chunks for aggregation
     supabase
       .from('chunks')
-      .select('type, character, is_system, scene_id')
+      .select('id, type, character, is_system, scene_id')
       .in('scene_id', allSceneIds),
 
-    // 4. Recordings for coverage (distinct chunk_ids per scene)
-    supabase
-      .from('recordings')
-      .select('chunk_id, chunks!inner(scene_id)')
-      .in('chunks.scene_id', allSceneIds),
+    // 4. Recordings for coverage (by performable chunk_ids)
+    // Placeholder — will query after chunks are available
+    Promise.resolve({ data: null }),
 
     // 5. Rooms for rehearsal counts
     supabase
@@ -96,8 +94,24 @@ export async function GET(
   ]);
 
   const chunks = chunksResult.data ?? [];
-  const recordings = recordingsResult.data ?? [];
   const rooms = roomsResult.data ?? [];
+
+  // Query recordings using direct chunk_id lookup (PostgREST .in on joined columns is unreliable)
+  const performableChunkIds = chunks.filter((c) => !c.is_system).map((c) => c.id);
+  let recordings: { chunk_id: string }[] = [];
+  if (performableChunkIds.length > 0) {
+    const { data: recs } = await supabase
+      .from('recordings')
+      .select('chunk_id')
+      .in('chunk_id', performableChunkIds);
+    recordings = recs ?? [];
+  }
+
+  // Build chunk-to-scene map for per-scene aggregation
+  const chunkToScene = new Map<string, string>();
+  for (const chunk of chunks) {
+    chunkToScene.set(chunk.id, chunk.scene_id);
+  }
 
   // === Aggregate chunk breakdown ===
   const chunkBreakdown = { dialogue: 0, action: 0, scene_heading: 0, transition: 0 };
@@ -122,7 +136,8 @@ export async function GET(
   // === Aggregate recording coverage per scene (distinct chunk_ids) ===
   const recordedPerScene = new Map<string, Set<string>>();
   for (const rec of recordings) {
-    const sceneId = (rec.chunks as unknown as { scene_id: string }).scene_id;
+    const sceneId = chunkToScene.get(rec.chunk_id);
+    if (!sceneId) continue;
     if (!recordedPerScene.has(sceneId)) recordedPerScene.set(sceneId, new Set());
     recordedPerScene.get(sceneId)!.add(rec.chunk_id);
   }

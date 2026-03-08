@@ -40,12 +40,23 @@ export async function GET() {
 
     let recordedChunks = 0;
     if (sceneIds.length > 0) {
-      const { data: recordings } = await supabase
-        .from('recordings')
-        .select('chunk_id, chunks!inner(scene_id)')
-        .in('chunks.scene_id', sceneIds);
+      // Get performable chunk IDs for these scenes
+      const { data: perfChunks } = await supabase
+        .from('chunks')
+        .select('id')
+        .eq('is_system', false)
+        .in('scene_id', sceneIds);
 
-      recordedChunks = new Set((recordings ?? []).map((r) => r.chunk_id)).size;
+      const chunkIds = (perfChunks ?? []).map((c) => c.id);
+
+      if (chunkIds.length > 0) {
+        const { data: recs } = await supabase
+          .from('recordings')
+          .select('chunk_id')
+          .in('chunk_id', chunkIds);
+
+        recordedChunks = new Set((recs ?? []).map((r) => r.chunk_id)).size;
+      }
     }
 
     stats.push({

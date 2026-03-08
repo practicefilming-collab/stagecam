@@ -88,9 +88,15 @@ export async function GET() {
     totalStorage += stats.storageBytes;
   }
 
+  // Count total scripts in DB
+  const { count: scriptCount } = await serviceClient
+    .from('scripts')
+    .select('id', { count: 'exact', head: true });
+
   const totals = {
     totalUsers: profiles.length,
-    totalScripts: allScripts.size,
+    totalScripts: scriptCount ?? 0,
+    scriptsWithRecordings: allScripts.size,
     totalRecordings,
     totalStorage,
   };

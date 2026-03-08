@@ -7,6 +7,7 @@ import Link from 'next/link';
 interface Totals {
   totalUsers: number;
   totalScripts: number;
+  scriptsWithRecordings: number;
   totalRecordings: number;
   totalStorage: number;
 }
@@ -104,7 +105,7 @@ export default function UserStatsPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
           {[
             { label: 'Users', value: totals.totalUsers },
-            { label: 'Scripts', value: totals.totalScripts },
+            { label: 'Scripts', value: `${totals.scriptsWithRecordings}/${totals.totalScripts}` },
             { label: 'Recordings', value: totals.totalRecordings },
             { label: 'Storage', value: formatStorage(totals.totalStorage) },
           ].map((item) => (
