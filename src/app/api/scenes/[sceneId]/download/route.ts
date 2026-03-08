@@ -222,7 +222,7 @@ export async function GET(
     );
   }
 
-  const playback = await buildScenePlaybackData(supabase as never, sceneId);
+  const playback = await buildScenePlaybackData(supabase, sceneId);
   if (!playback) {
     return NextResponse.json({ error: 'Scene not found' }, { status: 404 });
   }

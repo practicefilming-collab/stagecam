@@ -39,19 +39,7 @@ export interface ScenePlaybackData {
 }
 
 export async function buildScenePlaybackData(
-  supabase: {
-    from: (table: string) => {
-      select: (columns: string) => {
-        eq: (column: string, value: string) => {
-          single: () => Promise<{ data: unknown }>;
-          order?: (column: string) => Promise<{ data: unknown }>;
-        };
-        in?: (column: string, values: string[]) => {
-          order: (column: string, opts?: { ascending: boolean }) => Promise<{ data: unknown }>;
-        };
-      };
-    };
-  },
+  supabase: any,
   sceneId: string
 ): Promise<ScenePlaybackData | null> {
   const { data: scene } = await supabase
@@ -66,7 +54,7 @@ export async function buildScenePlaybackData(
     .from('chunks')
     .select('*')
     .eq('scene_id', sceneId)
-    .order?.('chunk_in_scene');
+    .order('chunk_in_scene');
 
   const chunkRows = (chunks ?? []) as Array<{
     id: string;
@@ -86,7 +74,7 @@ export async function buildScenePlaybackData(
   const { data: recordings } = await supabase
     .from('recordings')
     .select('*, profiles(display_name)')
-    .in?.('chunk_id', chunkIds)
+    .in('chunk_id', chunkIds)
     .order('created_at', { ascending: false });
 
   const recordingRows = (recordings ?? []) as Array<{

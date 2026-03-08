@@ -14,7 +14,7 @@ export async function GET(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const playback = await buildScenePlaybackData(supabase as never, sceneId);
+  const playback = await buildScenePlaybackData(supabase, sceneId);
   if (!playback) {
     return NextResponse.json({ error: 'Scene not found' }, { status: 404 });
   }
