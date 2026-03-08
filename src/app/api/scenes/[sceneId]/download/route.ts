@@ -16,6 +16,7 @@ const OUTPUT_HEIGHT = 1280;
 const OUTPUT_FPS = 30;
 const FFMPEG_BIN = process.env.FFMPEG_PATH || ffmpegInstaller.path || 'ffmpeg';
 const FFPROBE_BIN = process.env.FFPROBE_PATH || ffprobeInstaller.path || 'ffprobe';
+const FFMPEG_FONTFILE = process.env.FFMPEG_FONTFILE || '';
 
 function runProcess(command: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -131,20 +132,21 @@ async function renderTtsSegment(outputPath: string, item: PlaybackItem): Promise
   const topLabel = item.isSystem ? 'Narrator' : item.type === 'scene_heading' ? 'Scene Heading' : '';
   const characterLine = item.character ?? '';
   const chunkText = item.text;
+  const fontArg = FFMPEG_FONTFILE ? `:fontfile='${escapeDrawtext(FFMPEG_FONTFILE)}'` : '';
 
-  const filter = [
+  const filterWithText = [
     `color=c=black:s=${OUTPUT_WIDTH}x${OUTPUT_HEIGHT}:d=${ttsDuration}`,
-    `drawtext=text='${escapeDrawtext(topLabel)}':fontsize=28:fontcolor=#d4af37:x=(w-text_w)/2:y=(h*0.18):enable='gt(${topLabel ? '1' : '0'},0)'`,
-    `drawtext=text='${escapeDrawtext(characterLine)}':fontsize=44:fontcolor=#d4af37:x=(w-text_w)/2:y=(h*0.30):enable='gt(${characterLine ? '1' : '0'},0)'`,
-    `drawtext=text='${escapeDrawtext(chunkText)}':fontsize=30:fontcolor=white:line_spacing=8:box=0:x=(w-text_w)/2:y=(h*0.44)`,
+    `drawtext${fontArg}:text='${escapeDrawtext(topLabel)}':fontsize=28:fontcolor=#d4af37:x=(w-text_w)/2:y=(h*0.18):enable='gt(${topLabel ? '1' : '0'},0)'`,
+    `drawtext${fontArg}:text='${escapeDrawtext(characterLine)}':fontsize=44:fontcolor=#d4af37:x=(w-text_w)/2:y=(h*0.30):enable='gt(${characterLine ? '1' : '0'},0)'`,
+    `drawtext${fontArg}:text='${escapeDrawtext(chunkText)}':fontsize=30:fontcolor=white:line_spacing=8:box=0:x=(w-text_w)/2:y=(h*0.44)`,
   ].join(',');
 
-  const args = [
+  const withTextArgs = [
     '-y',
     '-f',
     'lavfi',
     '-i',
-    filter,
+    filterWithText,
     '-i',
     item.ttsUrl,
     '-map',
@@ -173,7 +175,47 @@ async function renderTtsSegment(outputPath: string, item: PlaybackItem): Promise
     outputPath,
   ];
 
-  await runProcess(FFMPEG_BIN, args);
+  const fallbackArgs = [
+    '-y',
+    '-f',
+    'lavfi',
+    '-i',
+    `color=c=black:s=${OUTPUT_WIDTH}x${OUTPUT_HEIGHT}:d=${ttsDuration}`,
+    '-i',
+    item.ttsUrl,
+    '-map',
+    '0:v:0',
+    '-map',
+    '1:a:0',
+    '-shortest',
+    '-r',
+    `${OUTPUT_FPS}`,
+    '-c:v',
+    'libx264',
+    '-preset',
+    'veryfast',
+    '-crf',
+    '23',
+    '-pix_fmt',
+    'yuv420p',
+    '-c:a',
+    'aac',
+    '-ar',
+    '48000',
+    '-ac',
+    '2',
+    '-movflags',
+    '+faststart',
+    outputPath,
+  ];
+
+  try {
+    await runProcess(FFMPEG_BIN, withTextArgs);
+  } catch (error) {
+    // Some serverless environments lack fontconfig/fonts. Keep export working without text overlay.
+    console.warn('Falling back to no-text TTS segment:', error);
+    await runProcess(FFMPEG_BIN, fallbackArgs);
+  }
 }
 
 async function buildSegment(outputPath: string, item: PlaybackItem): Promise<void> {
