@@ -45,7 +45,7 @@ export async function GET() {
   // Get recording stats per user, joining rooms to get script_id (serviceClient bypasses RLS)
   const { data: recordings } = await serviceClient
     .from('recordings')
-    .select('user_id, room_id, size_bytes, rooms!inner(script_id)');
+    .select('user_id, room_id, size_bytes, rooms(script_id)');
 
   const userStats = new Map<string, { scripts: Set<string>; totalRecordings: number; storageBytes: number }>();
 
