@@ -44,7 +44,7 @@ export async function GET(request: Request) {
       (sceneRecordings ?? []).map((r: Record<string, unknown>) => r.user_id as string)
     )];
 
-    const totalChunks = scene.total_chunks;
+    const performableChunks = scene.performable_chunks ?? scene.total_chunks;
     const recordedChunks = new Set(
       (sceneRecordings ?? []).map((r: Record<string, unknown>) => (r.chunks as { chunk_in_scene: number }).chunk_in_scene)
     ).size;
@@ -53,8 +53,8 @@ export async function GET(request: Request) {
       scene,
       recordings: sceneRecordings ?? [],
       participantCount: uniqueParticipants.length,
-      coverage: totalChunks > 0 ? recordedChunks / totalChunks : 0,
-      isComplete: recordedChunks >= totalChunks,
+      coverage: performableChunks > 0 ? recordedChunks / performableChunks : 0,
+      isComplete: recordedChunks >= performableChunks,
     });
   }
 

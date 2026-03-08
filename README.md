@@ -1,36 +1,68 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# StageCam
+
+Collaborative script rehearsal platform. Users join rooms, get assigned
+characters and action lines from real movie scripts, record their
+performances, and assemble them into composite scene playbacks.
+
+## Architecture
+
+- Next.js 14 App Router + TypeScript + Tailwind CSS
+- Supabase (Postgres, Auth, Storage, Realtime)
+- Cloudflare R2 for recording storage
+- Dark theatrical theme (gold #d4af37, dark bg #0a0a0a)
+
+## Data Pipeline
+
+Scripts are chunked via Python pipeline (`top250_movies/`) into markdown
+with YAML frontmatter, then seeded into Supabase via `supabase/seed/seed.ts`.
+
+### Chunk Classification
+
+Each chunk is typed (dialogue, action, scene_heading, transition) and
+classified as either **performable** (users record these) or **system**
+(always TTS narration — camera directions, SFX cues, short stage
+directions <=15 chars). Coverage and completion are measured against
+performable chunks only.
+
+## Key Modules
+
+- `src/lib/matchmaking/` — Scene selection, character assignment, chunk distribution
+- `src/lib/matchmaking/coverage.ts` — Recording coverage calculations
+- `src/components/player/` — Scene playback (recordings + TTS fallback)
+- `src/components/stats/` — Script dashboard visualizations
+- `src/app/api/` — API routes (rooms, recordings, stats, panels, scripts)
+- `supabase/seed/` — Database seeding from pipeline data
+- `supabase/migrations/` — Schema migrations
+
+## Room Flow
+
+1. Creator makes a room, selects a script, picks a scene (or auto-select)
+2. Matchmaking assigns characters by dialogue weight, distributes action chunks
+3. Participants record their assigned chunks
+4. Scene player assembles recordings + TTS into sequential playback
 
 ## Getting Started
 
-First, run the development server:
+```bash
+npm install
+```
+
+Create a `.env.local` with:
+
+```
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+```
+
+Run the dev server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Seed the database (requires service role key):
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npx tsx supabase/seed/seed.ts
+```

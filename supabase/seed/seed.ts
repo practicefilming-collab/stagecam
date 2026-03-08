@@ -1,3 +1,4 @@
+/** Seeds Supabase from pipeline markdown files. Computes is_system, performable_chunks, character_stats at insert time. */
 import * as fs from 'fs';
 import * as path from 'path';
 import { createClient } from '@supabase/supabase-js';
@@ -20,6 +21,25 @@ if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
+
+function isSystemChunk(type: string, content: string): boolean {
+  if (type === 'scene_heading' || type === 'transition') return true;
+  if (type === 'dialogue') return false;
+
+  // Action chunk rules:
+  const text = content.trim().toUpperCase();
+
+  // Camera/angle directions
+  if (/^(ANGLE|CLOSE UP|CLOSE ON|POV|WIDE SHOT|CAMERA|TRACKING|PAN TO|ZOOM)/.test(text)) return true;
+
+  // Technical/production cues
+  if (/^(SFX:|SONG |MUSIC |BEGIN TITLES|END TITLES|SMASH CUT)/.test(text)) return true;
+
+  // Very short stage directions (≤15 chars) — terse cues like "Beat." or "A pause."
+  if (content.trim().length <= 15) return true;
+
+  return false; // performable by default
+}
 
 function slugify(title: string): string {
   return title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -134,6 +154,23 @@ async function seedScript(filename: string) {
           .map((c) => c.character!)
       )];
 
+      // Compute character_stats: dialogue and total chunk counts per character
+      const charStatsMap = new Map<string, { dialogue_chunks: number; total_chunks: number }>();
+      for (const c of sceneChunks) {
+        if (!c.character) continue;
+        const entry = charStatsMap.get(c.character) ?? { dialogue_chunks: 0, total_chunks: 0 };
+        entry.total_chunks++;
+        if (c.type === 'dialogue') entry.dialogue_chunks++;
+        charStatsMap.set(c.character, entry);
+      }
+      const characterStats = [...charStatsMap.entries()]
+        .map(([name, stats]) => ({ name, ...stats }))
+        .sort((a, b) => b.dialogue_chunks - a.dialogue_chunks);
+
+      const performableChunks = sceneChunks.filter(
+        (c) => !isSystemChunk(c.type, c.content)
+      ).length;
+
       const { data: sceneRecord, error: sceneError } = await supabase
         .from('scenes')
         .upsert({
@@ -141,7 +178,9 @@ async function seedScript(filename: string) {
           scene_number: sceneNum,
           scene_heading: heading,
           total_chunks: sceneChunks.length,
+          performable_chunks: performableChunks,
           unique_characters: uniqueCharacters,
+          character_stats: characterStats,
         }, { onConflict: 'act_id,scene_number' })
         .select()
         .single();
@@ -165,6 +204,7 @@ async function seedScript(filename: string) {
           tts_text: ttsText,
           chunk_text: chunk.content,
           tts_audio_url: audioUrl,
+          is_system: isSystemChunk(chunk.type, chunk.content),
         }, {
           onConflict: 'scene_id,chunk_index',
           ignoreDuplicates: false,
