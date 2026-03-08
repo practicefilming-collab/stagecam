@@ -15,6 +15,12 @@ export async function GET() {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
+  // Service role client bypasses RLS
+  const serviceClient = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  );
+
   // Fetch all profiles (serviceClient bypasses RLS)
   const { data: profiles } = await serviceClient
     .from('profiles')
@@ -24,12 +30,6 @@ export async function GET() {
   if (!profiles || profiles.length === 0) {
     return NextResponse.json({ users: [] });
   }
-
-  // Use service role client to access auth.users for emails
-  const serviceClient = createServiceClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  );
 
   // Get emails and last sign-in for all users via admin API
   const emailMap = new Map<string, string>();
