@@ -40,6 +40,15 @@ performable chunks only.
 2. Matchmaking assigns characters by dialogue weight, distributes action chunks
 3. Participants record their assigned chunks
 4. Scene player assembles recordings + TTS into sequential playback
+5. Users can export a merged scene MP4 on demand from the scene player
+
+## Scene Export Download
+
+- The scene player includes a download icon next to playback controls.
+- Export builds one MP4 in playback order (recordings + TTS fallback segments).
+- Fallback segments render replay text over a black frame and use TTS audio duration.
+- Exports are generated on demand and not permanently stored, which saves storage space.
+- Server requires `ffmpeg` and `ffprobe` available on PATH for export generation.
 
 ## Getting Started
 

@@ -40,6 +40,8 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -113,6 +115,37 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
     setCurrentIdx(idx);
     if (playing) {
       // Will auto-play via the effect
+    }
+  };
+
+  const handleDownload = async () => {
+    try {
+      setDownloading(true);
+      setDownloadError('');
+
+      const res = await fetch(`/api/scenes/${sceneId}/download`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setDownloadError(data.error || 'Download failed');
+        return;
+      }
+
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition') ?? '';
+      const match = disposition.match(/filename="([^"]+)"/i);
+      const filename = match?.[1] ?? `scene-${sceneId}.mp4`;
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setDownloadError('Download failed');
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -237,6 +270,22 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
         </span>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={handleDownload}
+            disabled={downloading}
+            title="Download full scene"
+            aria-label="Download full scene"
+            className="w-9 h-9 inline-flex items-center justify-center bg-surface border border-border rounded-full hover:bg-surface-hover disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+          >
+            {downloading ? (
+              <span className="text-[10px] text-muted">...</span>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4 text-gold" aria-hidden="true">
+                <path d="M12 3v11m0 0l-4-4m4 4l4-4M5 17v3h14v-3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </button>
+
           {!playing ? (
             <button
               onClick={handlePlay}
@@ -266,6 +315,12 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
           {current?.type}
         </span>
       </div>
+
+      {downloadError && (
+        <div className="px-4 pb-2">
+          <p className="text-xs text-red-400">{downloadError}</p>
+        </div>
+      )}
 
       {/* Chunk timeline */}
       <div className="px-4 py-2 border-t border-border flex gap-0.5 overflow-x-auto">

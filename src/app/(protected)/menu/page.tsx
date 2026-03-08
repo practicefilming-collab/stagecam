@@ -131,7 +131,7 @@ export default function MenuPage() {
             History
           </h2>
           <p className="text-sm text-muted">
-            Browse your past rehearsals, view cast lists, and download recordings.
+            Browse your past rehearsals and open Panel Viewer to download merged scene exports on demand.
           </p>
         </Link>
       </div>
