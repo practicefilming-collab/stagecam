@@ -16,6 +16,7 @@ interface UserStat {
   id: string;
   displayName: string;
   authProvider: string;
+  isAdmin: boolean;
   username: string | null;
   joinedAt: string;
   lastLoginAt: string | null;
@@ -124,12 +125,19 @@ export default function UserStatsPage() {
         {users.map((u) => (
           <div
             key={u.id}
-            className="bg-surface border border-border rounded-xl p-5"
+            className={`bg-surface border rounded-xl p-5 ${
+              u.isAdmin ? 'border-gold shadow-[0_0_0_1px_rgba(212,175,55,0.25)]' : 'border-border'
+            }`}
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-3">
                 <span className="font-medium">{u.displayName || 'Unnamed'}</span>
                 {providerBadge(u.authProvider)}
+                {u.isAdmin && (
+                  <span className="px-2 py-0.5 rounded-full text-xs bg-gold/15 text-gold border border-gold/30">
+                    Admin
+                  </span>
+                )}
               </div>
               {u.username && (
                 <span className="text-sm text-muted">{u.username}</span>

@@ -24,7 +24,7 @@ export async function GET() {
   // Fetch all profiles (serviceClient bypasses RLS)
   const { data: profiles } = await serviceClient
     .from('profiles')
-    .select('id, auth_provider, platform_username, display_name, created_at')
+    .select('id, auth_provider, platform_username, display_name, created_at, is_admin')
     .order('created_at', { ascending: false });
 
   if (!profiles || profiles.length === 0) {
@@ -69,6 +69,7 @@ export async function GET() {
       id: p.id,
       displayName: p.display_name,
       authProvider: p.auth_provider ?? 'unknown',
+      isAdmin: p.is_admin ?? false,
       username: p.platform_username || emailMap.get(p.id) || null,
       joinedAt: p.created_at,
       lastLoginAt: lastLoginMap.get(p.id) ?? null,
