@@ -107,19 +107,7 @@ export default function MenuPage() {
           {error && <p className="text-red-400 text-xs mt-2">{error}</p>}
         </div>
 
-        {/* Panel */}
-        <Link
-          href="/panel"
-          className="group bg-surface border border-border rounded-2xl p-8 hover:border-gold/30 transition-all"
-        >
-          <div className="text-3xl mb-4">🎞️</div>
-          <h2 className="text-xl font-semibold mb-2 group-hover:text-gold transition-colors">
-            Join Panel
-          </h2>
-          <p className="text-sm text-muted">
-            Watch composite scenes with other performers. See how your recordings fit together.
-          </p>
-        </Link>
+        {/* Join Panel — hidden until circuit framework is built; will be renamed "Circuit Stage" */}
 
         {/* History */}
         <Link

@@ -52,13 +52,7 @@ export default function CompletePage() {
       )}
 
       {/* Navigation */}
-      <div className="mt-6 space-y-3">
-        <button
-          onClick={() => router.push(`/stage/${roomCode}`)}
-          className="w-full py-3 bg-surface border border-border rounded-xl font-medium hover:border-gold/30 transition-colors"
-        >
-          Back to Stage
-        </button>
+      <div className="mt-6">
         <button
           onClick={() => router.push('/menu')}
           className="w-full py-3 bg-gold text-black rounded-xl font-semibold hover:bg-gold-dim transition-colors"
