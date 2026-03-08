@@ -32,6 +32,14 @@ interface ScenePlayerProps {
   sceneId: string;
 }
 
+interface ExportJobStatusResponse {
+  jobId: string;
+  status: 'queued' | 'processing' | 'succeeded' | 'failed' | 'expired';
+  progressPct: number;
+  errorMessage: string | null;
+  downloadUrl: string | null;
+}
+
 export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
   const [scene, setScene] = useState<SceneInfo | null>(null);
   const [items, setItems] = useState<PlaybackItem[]>([]);
@@ -42,6 +50,7 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
   const [error, setError] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState('');
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -119,29 +128,69 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
   };
 
   const handleDownload = async () => {
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
     try {
       setDownloading(true);
       setDownloadError('');
+      setDownloadProgress(0);
 
-      const res = await fetch(`/api/scenes/${sceneId}/download`);
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setDownloadError(data.error || 'Download failed');
+      const createRes = await fetch(`/api/scenes/${sceneId}/exports`, { method: 'POST' });
+      if (!createRes.ok) {
+        const data = await createRes.json().catch(() => ({}));
+        setDownloadError(data.error || 'Failed to queue export');
+        return;
+      }
+      const created = await createRes.json();
+      const jobId = created.jobId as string;
+      if (!jobId) {
+        setDownloadError('Invalid export job response');
         return;
       }
 
-      const blob = await res.blob();
-      const disposition = res.headers.get('Content-Disposition') ?? '';
-      const match = disposition.match(/filename="([^"]+)"/i);
-      const filename = match?.[1] ?? `scene-${sceneId}.mp4`;
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
+      // Best-effort kickoff; status polling will continue regardless.
+      void fetch(`/api/exports/${jobId}/kickoff`, { method: 'POST' }).catch(() => {});
+
+      for (let i = 0; i < 180; i += 1) {
+        const statusRes = await fetch(`/api/exports/${jobId}`);
+        if (!statusRes.ok) {
+          const data = await statusRes.json().catch(() => ({}));
+          setDownloadError(data.error || 'Failed to fetch export status');
+          return;
+        }
+
+        const statusData: ExportJobStatusResponse = await statusRes.json();
+        setDownloadProgress(statusData.progressPct ?? 0);
+
+        if (statusData.status === 'succeeded' && statusData.downloadUrl) {
+          const anchor = document.createElement('a');
+          anchor.href = statusData.downloadUrl;
+          anchor.rel = 'noopener';
+          document.body.appendChild(anchor);
+          anchor.click();
+          anchor.remove();
+          setDownloadProgress(100);
+          return;
+        }
+
+        if (statusData.status === 'failed') {
+          setDownloadError(statusData.errorMessage || 'Export failed');
+          return;
+        }
+
+        if (statusData.status === 'expired') {
+          setDownloadError('Export expired. Try again.');
+          return;
+        }
+
+        if (statusData.status === 'queued' && i > 2 && i % 10 === 0) {
+          void fetch(`/api/exports/${jobId}/kickoff`, { method: 'POST' }).catch(() => {});
+        }
+
+        await wait(2000);
+      }
+
+      setDownloadError('Export timed out. Please try again.');
     } catch {
       setDownloadError('Download failed');
     } finally {
@@ -278,7 +327,9 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
             className="w-9 h-9 inline-flex items-center justify-center bg-surface border border-border rounded-full hover:bg-surface-hover disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
           >
             {downloading ? (
-              <span className="text-[10px] text-muted">...</span>
+              <span className="text-[10px] text-muted">
+                {downloadProgress !== null ? `${Math.max(0, Math.min(99, downloadProgress))}%` : '...'}
+              </span>
             ) : (
               <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4 text-gold" aria-hidden="true">
                 <path d="M12 3v11m0 0l-4-4m4 4l4-4M5 17v3h14v-3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />

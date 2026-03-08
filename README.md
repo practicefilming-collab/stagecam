@@ -45,10 +45,12 @@ performable chunks only.
 ## Scene Export Download
 
 - The scene player includes a download icon next to playback controls.
+- Export runs asynchronously via job status in Supabase and processing in API worker flow.
+- Output MP4 files are stored in Cloudflare R2 and delivered through short-lived signed URLs.
 - Export builds one MP4 in playback order (recordings + TTS fallback segments).
 - Fallback segments render replay text over a black frame and use TTS audio duration.
-- Exports are generated on demand and not permanently stored, which saves storage space.
-- Server requires `ffmpeg` and `ffprobe` available on PATH for export generation.
+- Exports are retained for 24 hours and then expire.
+- Server requires `ffmpeg` and `ffprobe` binaries (bundled installer or PATH) for export generation.
 
 ## Getting Started
 
