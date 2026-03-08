@@ -19,3 +19,13 @@ export function slugify(title: string): string {
 export function cn(...classes: (string | undefined | false | null)[]): string {
   return classes.filter(Boolean).join(' ');
 }
+
+export function normalizeScriptText(text: string): string {
+  return text
+    .replace(/\r\n/g, '\n')
+    .replace(/\n\n+/g, '\u0000') // preserve paragraph breaks
+    .replace(/\n/g, ' ')         // join mid-sentence line breaks
+    .replace(/\u0000/g, '\n\n')  // restore paragraph breaks
+    .replace(/ {2,}/g, ' ')      // clean double spaces
+    .trim();
+}

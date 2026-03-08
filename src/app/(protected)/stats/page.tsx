@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import type { Script } from '@/lib/types';
 
 interface ScriptStats extends Script {
@@ -10,44 +11,35 @@ interface ScriptStats extends Script {
 }
 
 export default function StatsPage() {
+  const router = useRouter();
   const [scripts, setScripts] = useState<ScriptStats[]>([]);
   const [loading, setLoading] = useState(true);
-  const supabase = createClient();
+  const [forbidden, setForbidden] = useState(false);
 
   useEffect(() => {
     async function load() {
-      const { data } = await supabase
-        .from('scripts')
-        .select('*')
-        .order('rank');
-
-      // For each script, get recording count
-      const stats: ScriptStats[] = [];
-      for (const script of data ?? []) {
-        // Get chunks with recordings
-        const { data: recordings } = await supabase
-          .from('recordings')
-          .select('chunk_id')
-          .eq('chunks.scene_id', script.id);
-
-        const recordedChunks = new Set((recordings ?? []).map((r) => r.chunk_id)).size;
-
-        stats.push({
-          ...script,
-          recorded_chunks: recordedChunks,
-          completion: script.total_chunks > 0
-            ? Math.round((recordedChunks / script.total_chunks) * 100)
-            : 0,
-        });
+      const res = await fetch('/api/stats');
+      if (res.status === 403) {
+        setForbidden(true);
+        setLoading(false);
+        return;
       }
-
-      setScripts(stats);
+      if (res.ok) {
+        setScripts(await res.json());
+      }
       setLoading(false);
     }
     load();
   }, []);
 
-  if (loading) {
+  // Non-admins get redirected to personal stats
+  useEffect(() => {
+    if (forbidden) {
+      router.replace('/stats/me');
+    }
+  }, [forbidden, router]);
+
+  if (loading || forbidden) {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)]">
         <p className="text-muted">Loading stats...</p>
@@ -57,13 +49,19 @@ export default function StatsPage() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-12">
-      <h1 className="text-2xl font-bold text-gold mb-8">Coverage Stats</h1>
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="text-2xl font-bold text-gold">Coverage Stats</h1>
+        <Link href="/stats/me" className="text-xs text-muted hover:text-foreground transition-colors">
+          Your Role Call &rarr;
+        </Link>
+      </div>
 
       <div className="space-y-3">
         {scripts.map((script) => (
-          <div
+          <Link
             key={script.id}
-            className="bg-surface border border-border rounded-xl p-5"
+            href={`/stats/${script.slug}`}
+            className="block bg-surface border border-border rounded-xl p-5 hover:border-gold/30 transition-colors"
           >
             <div className="flex items-center justify-between mb-2">
               <div>
@@ -85,10 +83,10 @@ export default function StatsPage() {
             </div>
 
             <div className="flex items-center justify-between mt-2 text-xs text-muted">
-              <span>{script.recorded_chunks} / {script.total_chunks} chunks</span>
+              <span>{script.recorded_chunks} recorded</span>
               <span>{script.total_acts} acts, {script.total_scenes} scenes</span>
             </div>
-          </div>
+          </Link>
         ))}
       </div>
     </div>

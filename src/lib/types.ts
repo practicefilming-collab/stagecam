@@ -1,3 +1,4 @@
+/** Shared TypeScript interfaces matching the Supabase schema. */
 export type AuthProvider = 'instagram' | 'tiktok' | 'google';
 
 export type ChunkType = 'scene_heading' | 'action' | 'dialogue' | 'transition';
@@ -13,6 +14,7 @@ export interface Profile {
   display_name: string;
   terms_accepted_at: string | null;
   terms_version: string | null;
+  is_admin: boolean;
   created_at: string;
 }
 
@@ -44,6 +46,8 @@ export interface Scene {
   scene_heading: string | null;
   total_chunks: number;
   unique_characters: string[];
+  character_stats?: { name: string; dialogue_chunks: number; total_chunks: number }[];
+  performable_chunks: number;
 }
 
 export interface Chunk {
@@ -56,6 +60,7 @@ export interface Chunk {
   tts_text: string | null;
   chunk_text: string;
   tts_audio_url: string | null;
+  is_system: boolean;
 }
 
 export interface Room {

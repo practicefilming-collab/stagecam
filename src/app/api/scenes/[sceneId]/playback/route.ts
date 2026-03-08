@@ -3,6 +3,7 @@ import { r2, R2_BUCKET } from '@/lib/r2';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { NextResponse } from 'next/server';
+import { normalizeScriptText } from '@/lib/utils';
 
 export async function GET(
   request: Request,
@@ -46,6 +47,21 @@ export async function GET(
     .in('chunk_id', chunkIds)
     .order('created_at', { ascending: false });
 
+  // Get assignments for this scene's room to determine original vs cover
+  const { data: roomParticipants } = await supabase
+    .from('room_participants')
+    .select('user_id, assigned_chunks')
+    .eq('room_id', recordings?.[0]?.room_id ?? '');
+
+  // Build chunk_id -> assigned user_id map
+  const chunkAssignmentMap = new Map<string, string>();
+  for (const rp of roomParticipants ?? []) {
+    const assigned = (rp.assigned_chunks ?? []) as { chunk_id: string }[];
+    for (const a of assigned) {
+      chunkAssignmentMap.set(a.chunk_id, rp.user_id);
+    }
+  }
+
   // Build a map: chunk_id -> latest recording
   const recs = recordings ?? [];
   const recordingMap = new Map<string, (typeof recs)[0]>();
@@ -88,7 +104,8 @@ export async function GET(
       chunkInScene: chunk.chunk_in_scene,
       type: chunk.type,
       character: chunk.character,
-      text: chunk.tts_text ?? chunk.chunk_text,
+      isSystem: chunk.is_system ?? false,
+      text: chunk.tts_text ?? normalizeScriptText(chunk.chunk_text),
       // Recording data (if exists)
       hasRecording: !!recording,
       recordingUrl: r2Url ?? null,
@@ -96,6 +113,9 @@ export async function GET(
       performerName: recording
         ? (recording.profiles as unknown as { display_name: string })?.display_name
         : null,
+      fallbackSource: recording
+        ? (chunkAssignmentMap.get(chunk.id) === recording.user_id ? 'performer' : 'cover')
+        : chunk.tts_audio_url ? 'tts' : 'text',
       // TTS fallback
       ttsUrl,
     };
@@ -119,8 +139,10 @@ export async function GET(
     items,
     stats: {
       totalChunks: chunks.length,
+      performableChunks: chunks.filter((c) => !c.is_system).length,
       recordedChunks: recordingMap.size,
       ttsChunks: chunks.length - recordingMap.size,
+      systemChunks: chunks.filter((c) => c.is_system).length,
     },
   });
 }

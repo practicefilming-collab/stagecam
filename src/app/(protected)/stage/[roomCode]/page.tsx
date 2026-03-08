@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { usePresence } from '@/hooks/use-presence';
@@ -15,14 +15,26 @@ interface CallSheetEntry {
   actionCount: number;
 }
 
-interface PreviewData {
+interface PickPreviewData {
+  mode: 'pick';
   sceneId: string;
   sceneHeading: string;
   sceneNumber: number;
   actNumber: number;
   totalChunks: number;
+  systemChunks: number;
   callSheet: CallSheetEntry[];
 }
+
+interface AutoPreviewData {
+  mode: 'auto';
+  candidateScenes: number;
+  averageCoverage: number;
+  participantCount: number;
+  estimatedChunksPerPerson: number;
+}
+
+type PreviewData = PickPreviewData | AutoPreviewData;
 
 type Stage = 'script' | 'scene' | 'callsheet';
 
@@ -435,9 +447,11 @@ export default function WaitingRoomPage() {
                         <span className="text-muted text-xs mr-2">Scene {scene.scene_number}</span>
                         <span className="text-foreground">{scene.scene_heading || 'Untitled'}</span>
                         <span className="text-muted text-xs ml-2">({scene.total_chunks} chunks)</span>
-                        {scene.unique_characters.length > 0 && (
+                        {((scene.character_stats as { name: string }[] | undefined) ?? scene.unique_characters).length > 0 && (
                           <div className="mt-1 text-xs text-gold/70">
-                            {scene.unique_characters.join(', ')}
+                            {(scene.character_stats as { name: string }[] | undefined)
+                              ? (scene.character_stats as { name: string }[]).map(c => c.name).join(', ')
+                              : scene.unique_characters.join(', ')}
                           </div>
                         )}
                       </button>
@@ -457,8 +471,8 @@ export default function WaitingRoomPage() {
             </div>
           )}
 
-          {/* Stage 3: Call Sheet */}
-          {stage === 'callsheet' && preview && (
+          {/* Stage 3: Call Sheet (pick mode) or Auto-Match Summary (auto mode) */}
+          {stage === 'callsheet' && preview && preview.mode === 'pick' && (
             <>
               <div className="bg-surface border border-border rounded-2xl p-6 mb-6">
                 <div className="flex items-center justify-between mb-4">
@@ -476,7 +490,7 @@ export default function WaitingRoomPage() {
                     Act {preview.actNumber} &middot; Scene {preview.sceneNumber}
                   </p>
                   <p className="text-sm text-muted mt-1">{preview.sceneHeading}</p>
-                  <p className="text-xs text-muted mt-1">{preview.totalChunks} total chunks</p>
+                  <p className="text-xs text-muted mt-1">{preview.totalChunks} performable chunks</p>
                 </div>
 
                 <div className="space-y-3">
@@ -501,9 +515,15 @@ export default function WaitingRoomPage() {
                       {entry.character ? (
                         <p className="text-xs text-gold">
                           {entry.character}
-                          <span className="text-muted ml-2">
-                            ({entry.dialogueCount} dialogue, {entry.actionCount} other)
-                          </span>
+                          {entry.actionCount > 0 ? (
+                            <span className="text-muted ml-2">
+                              ({entry.dialogueCount} dialogue, {entry.actionCount} other)
+                            </span>
+                          ) : (
+                            <span className="text-muted ml-2">
+                              ({entry.dialogueCount} dialogue)
+                            </span>
+                          )}
                         </p>
                       ) : (
                         <p className="text-xs text-muted">
@@ -513,6 +533,60 @@ export default function WaitingRoomPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* Ready / Start buttons */}
+              <div className="space-y-3">
+                <ReadyButton onReady={markReady} readyUsers={readyUsers} />
+                <button
+                  onClick={startSession}
+                  disabled={starting}
+                  className="w-full py-3 bg-gold text-black rounded-xl font-semibold text-lg hover:bg-gold-dim transition-colors disabled:opacity-50"
+                >
+                  {starting
+                    ? 'Starting...'
+                    : `Start Rehearsal (${readyUsers.size}/${Math.max(participants.length, 1)} ready)`}
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Stage 3: Auto-Match Summary */}
+          {stage === 'callsheet' && preview && preview.mode === 'auto' && (
+            <>
+              <div className="bg-surface border border-border rounded-2xl p-6 mb-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-sm text-muted uppercase tracking-wider">Auto-Match Summary</h2>
+                  <button
+                    onClick={() => { setStage('scene'); setPreview(null); setReadyUsers(new Set()); }}
+                    className="text-xs text-muted hover:text-foreground transition-colors"
+                  >
+                    Change Mode
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div className="text-center p-3 rounded-xl bg-background/50 border border-border">
+                    <p className="text-2xl font-bold text-gold">{preview.participantCount}</p>
+                    <p className="text-xs text-muted mt-1">Participants</p>
+                  </div>
+                  <div className="text-center p-3 rounded-xl bg-background/50 border border-border">
+                    <p className="text-2xl font-bold text-gold">{preview.candidateScenes}</p>
+                    <p className="text-xs text-muted mt-1">Candidate Scenes</p>
+                  </div>
+                  <div className="text-center p-3 rounded-xl bg-background/50 border border-border">
+                    <p className="text-2xl font-bold text-gold">{Math.round(preview.averageCoverage * 100)}%</p>
+                    <p className="text-xs text-muted mt-1">Avg Coverage</p>
+                  </div>
+                  <div className="text-center p-3 rounded-xl bg-background/50 border border-border">
+                    <p className="text-2xl font-bold text-gold">~{preview.estimatedChunksPerPerson}</p>
+                    <p className="text-xs text-muted mt-1">Chunks / Person</p>
+                  </div>
+                </div>
+
+                <p className="text-xs text-muted text-center">
+                  Roles assigned when rehearsal starts
+                </p>
               </div>
 
               {/* Ready / Start buttons */}
@@ -544,7 +618,7 @@ export default function WaitingRoomPage() {
               The director is selecting a scene...
             </p>
           )}
-          {stage === 'callsheet' && preview && (
+          {stage === 'callsheet' && preview && preview.mode === 'pick' && (
             <>
               <div className="bg-surface border border-border rounded-2xl p-6 mb-6">
                 <h2 className="text-sm text-muted mb-4 uppercase tracking-wider text-center">Call Sheet</h2>
@@ -554,7 +628,7 @@ export default function WaitingRoomPage() {
                     Act {preview.actNumber} &middot; Scene {preview.sceneNumber}
                   </p>
                   <p className="text-sm text-muted mt-1">{preview.sceneHeading}</p>
-                  <p className="text-xs text-muted mt-1">{preview.totalChunks} total chunks</p>
+                  <p className="text-xs text-muted mt-1">{preview.totalChunks} performable chunks</p>
                 </div>
 
                 <div className="space-y-3">
@@ -579,9 +653,15 @@ export default function WaitingRoomPage() {
                       {entry.character ? (
                         <p className="text-xs text-gold">
                           {entry.character}
-                          <span className="text-muted ml-2">
-                            ({entry.dialogueCount} dialogue, {entry.actionCount} other)
-                          </span>
+                          {entry.actionCount > 0 ? (
+                            <span className="text-muted ml-2">
+                              ({entry.dialogueCount} dialogue, {entry.actionCount} other)
+                            </span>
+                          ) : (
+                            <span className="text-muted ml-2">
+                              ({entry.dialogueCount} dialogue)
+                            </span>
+                          )}
                         </p>
                       ) : (
                         <p className="text-xs text-muted">
@@ -591,6 +671,24 @@ export default function WaitingRoomPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              <ReadyButton onReady={markReady} readyUsers={readyUsers} />
+              <p className="text-muted text-xs text-center mt-3">
+                Waiting for the director to start the session...
+              </p>
+            </>
+          )}
+          {stage === 'callsheet' && preview && preview.mode === 'auto' && (
+            <>
+              <div className="bg-surface border border-border rounded-2xl p-6 mb-6">
+                <h2 className="text-sm text-muted mb-4 uppercase tracking-wider text-center">Auto-Match Summary</h2>
+                <p className="text-sm text-muted text-center mb-4">
+                  {preview.candidateScenes} candidate scenes &middot; {Math.round(preview.averageCoverage * 100)}% avg coverage
+                </p>
+                <p className="text-xs text-muted text-center">
+                  Roles assigned when rehearsal starts
+                </p>
               </div>
 
               <ReadyButton onReady={markReady} readyUsers={readyUsers} />

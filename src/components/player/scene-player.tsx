@@ -1,3 +1,4 @@
+/** Sequential scene playback: recordings → TTS fallback → text display. System chunks badged as Narrator. */
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
@@ -8,11 +9,13 @@ interface PlaybackItem {
   chunkInScene: number;
   type: string;
   character: string | null;
+  isSystem: boolean;
   text: string;
   hasRecording: boolean;
   recordingUrl: string | null;
   recordingFormat: string | null;
   performerName: string | null;
+  fallbackSource: 'performer' | 'cover' | 'tts' | 'text';
   ttsUrl: string | null;
 }
 
@@ -32,7 +35,7 @@ interface ScenePlayerProps {
 export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
   const [scene, setScene] = useState<SceneInfo | null>(null);
   const [items, setItems] = useState<PlaybackItem[]>([]);
-  const [stats, setStats] = useState({ totalChunks: 0, recordedChunks: 0, ttsChunks: 0 });
+  const [stats, setStats] = useState({ totalChunks: 0, performableChunks: 0, recordedChunks: 0, ttsChunks: 0, systemChunks: 0 });
   const [currentIdx, setCurrentIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -144,7 +147,7 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
           </div>
           <div className="text-right">
             <p className="text-xs text-muted">
-              {stats.recordedChunks} recorded / {stats.totalChunks} total
+              {stats.recordedChunks} recorded / {stats.performableChunks} performable
             </p>
           </div>
         </div>
@@ -175,7 +178,12 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
         {/* Text display — shown during TTS or when no media */}
         {(!current?.hasRecording || !playing) && current && (
           <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
-            {current.type === 'scene_heading' && (
+            {current.isSystem && (
+              <p className="text-gold/50 text-xs uppercase tracking-wider mb-4">
+                Narrator
+              </p>
+            )}
+            {!current.isSystem && current.type === 'scene_heading' && (
               <p className="text-gold text-xs uppercase tracking-wider mb-4">
                 Scene Heading
               </p>
@@ -185,15 +193,15 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
                 {current.character}
               </p>
             )}
-            <p className="text-white text-base leading-relaxed whitespace-pre-wrap max-w-md">
+            <p className="text-white text-base leading-relaxed max-w-md">
               {current.text}
             </p>
             {current.hasRecording && current.performerName && (
               <p className="text-gold/60 text-xs mt-4">
-                Performed by {current.performerName}
+                {current.fallbackSource === 'cover' ? 'Covered' : 'Performed'} by {current.performerName}
               </p>
             )}
-            {!current.hasRecording && (
+            {!current.hasRecording && !current.isSystem && (
               <p className="text-muted text-xs mt-4">TTS Audio</p>
             )}
           </div>
@@ -202,7 +210,9 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
         {/* Performer badge on video */}
         {current?.hasRecording && playing && current.performerName && (
           <div className="absolute bottom-3 left-3 bg-black/60 px-2 py-1 rounded-full z-10">
-            <span className="text-gold text-xs">{current.performerName}</span>
+            <span className="text-gold text-xs">
+              {current.fallbackSource === 'cover' ? 'Covered by ' : ''}{current.performerName}
+            </span>
             {current.character && (
               <span className="text-muted text-xs ml-1">as {current.character}</span>
             )}
@@ -266,11 +276,13 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
             className={`flex-shrink-0 h-2 rounded-full transition-all ${
               i === currentIdx
                 ? 'w-6 bg-gold'
+                : item.isSystem
+                ? 'w-2 bg-gold/30 hover:bg-gold/50'
                 : item.hasRecording
                 ? 'w-2 bg-green-500/60 hover:bg-green-500'
                 : 'w-2 bg-border hover:bg-muted'
             }`}
-            title={`${item.type}${item.character ? ` - ${item.character}` : ''}${item.hasRecording ? ' (recorded)' : ' (TTS)'}`}
+            title={`${item.type}${item.character ? ` - ${item.character}` : ''}${item.isSystem ? ' (narrator)' : item.hasRecording ? ' (recorded)' : ' (TTS)'}`}
           />
         ))}
       </div>
