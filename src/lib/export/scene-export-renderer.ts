@@ -226,7 +226,40 @@ async function buildSegment(outputPath: string, item: PlaybackItem): Promise<voi
 async function concatenateSegments(segmentPaths: string[], outputPath: string, listPath: string): Promise<void> {
   const lines = segmentPaths.map((segmentPath) => `file '${segmentPath.replace(/'/g, "'\\''")}'`);
   await fs.writeFile(listPath, `${lines.join('\n')}\n`, 'utf8');
-  await runProcess(FFMPEG_BIN, ['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c', 'copy', outputPath]);
+  await runProcess(FFMPEG_BIN, [
+    '-y',
+    '-f',
+    'concat',
+    '-safe',
+    '0',
+    '-i',
+    listPath,
+    '-fflags',
+    '+genpts',
+    '-vsync',
+    'cfr',
+    '-r',
+    `${OUTPUT_FPS}`,
+    '-af',
+    'aresample=async=1:first_pts=0',
+    '-c:v',
+    'libx264',
+    '-preset',
+    'veryfast',
+    '-crf',
+    '23',
+    '-pix_fmt',
+    'yuv420p',
+    '-c:a',
+    'aac',
+    '-ar',
+    '48000',
+    '-ac',
+    '2',
+    '-movflags',
+    '+faststart',
+    outputPath,
+  ]);
 }
 
 export async function hasExportBinaries(): Promise<boolean> {
