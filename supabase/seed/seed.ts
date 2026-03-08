@@ -42,6 +42,17 @@ function isSystemChunk(type: string, content: string): boolean {
   return false; // performable by default
 }
 
+// Accumulate scene roll call data for end-of-seed summary
+interface SceneRollCallSummary {
+  script: string;
+  heading: string;
+  characters: number;
+  actionChunks: number;
+  performableChunks: number;
+  maxParticipants: number;
+}
+const allSceneRollCalls: SceneRollCallSummary[] = [];
+
 function slugify(title: string): string {
   return title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
@@ -176,6 +187,15 @@ async function seedScript(filename: string) {
       const actionChunkCount = performableChunks - dialogueChunkCount;
       const rollCalls = computeRollCalls(uniqueCharacters.length, actionChunkCount);
 
+      allSceneRollCalls.push({
+        script: title,
+        heading: heading || `Scene ${sceneNum}`,
+        characters: uniqueCharacters.length,
+        actionChunks: actionChunkCount,
+        performableChunks,
+        maxParticipants: rollCalls.length > 0 ? rollCalls[rollCalls.length - 1].participants : 0,
+      });
+
       const { data: sceneRecord, error: sceneError } = await supabase
         .from('scenes')
         .upsert({
@@ -238,7 +258,65 @@ async function main() {
     await seedScript(file);
   }
 
+  // Print roll call summaries
+  printRollCallSummaries();
+
   console.log('\n\nSeeding complete!');
+}
+
+function printRollCallSummaries() {
+  if (allSceneRollCalls.length === 0) return;
+
+  // Table 1: Scene availability by participant count
+  console.log('\n\n========================================');
+  console.log('ROLL CALL SUMMARY: Scenes by Participant Count');
+  console.log('========================================');
+  const maxP = 30;
+  for (let n = 1; n <= maxP; n++) {
+    const count = allSceneRollCalls.filter((s) => s.maxParticipants >= n).length;
+    if (count === 0) break;
+    const bar = '█'.repeat(Math.ceil(count / Math.max(1, Math.ceil(allSceneRollCalls.length / 50))));
+    console.log(`  ${String(n).padStart(2)} participants: ${String(count).padStart(5)} scenes  ${bar}`);
+  }
+
+  // Table 2: Roll calls grouped by performable chunk count (bucketed)
+  console.log('\n========================================');
+  console.log('ROLL CALL SUMMARY: Scenes by Chunk Count');
+  console.log('========================================');
+  const sorted = [...allSceneRollCalls].sort((a, b) => a.performableChunks - b.performableChunks);
+  const buckets = [
+    { label: '1-5 chunks', min: 1, max: 5 },
+    { label: '6-15 chunks', min: 6, max: 15 },
+    { label: '16-30 chunks', min: 16, max: 30 },
+    { label: '31-50 chunks', min: 31, max: 50 },
+    { label: '51-100 chunks', min: 51, max: 100 },
+    { label: '100+ chunks', min: 101, max: Infinity },
+  ];
+
+  for (const bucket of buckets) {
+    const scenes = sorted.filter(
+      (s) => s.performableChunks >= bucket.min && s.performableChunks <= bucket.max
+    );
+    if (scenes.length === 0) continue;
+
+    const avgChars = (scenes.reduce((s, sc) => s + sc.characters, 0) / scenes.length).toFixed(1);
+    const avgActions = (scenes.reduce((s, sc) => s + sc.actionChunks, 0) / scenes.length).toFixed(1);
+    const avgMax = (scenes.reduce((s, sc) => s + sc.maxParticipants, 0) / scenes.length).toFixed(1);
+
+    console.log(`\n  ${bucket.label} (${scenes.length} scenes)`);
+    console.log(`    Avg characters: ${avgChars}  |  Avg action chunks: ${avgActions}  |  Avg max participants: ${avgMax}`);
+
+    // Show participant availability spread for this bucket
+    const counts: number[] = [];
+    for (let n = 1; n <= maxP; n++) {
+      counts.push(scenes.filter((s) => s.maxParticipants >= n).length);
+    }
+    const nonZero = counts.findLastIndex((c) => c > 0) + 1;
+    if (nonZero > 0) {
+      const spread = counts.slice(0, nonZero).map((c, i) => `${i + 1}p:${c}`).join('  ');
+      console.log(`    Availability: ${spread}`);
+    }
+  }
 }
 
 main().catch(console.error);
