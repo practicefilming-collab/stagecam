@@ -147,7 +147,7 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
           </div>
           <div className="text-right">
             <p className="text-xs text-muted">
-              {stats.recordedChunks} recorded / {stats.performableChunks} performable
+              {stats.recordedChunks} recorded / {stats.performableChunks} rehearsable
             </p>
           </div>
         </div>

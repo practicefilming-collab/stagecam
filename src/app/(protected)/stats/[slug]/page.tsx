@@ -138,7 +138,7 @@ export default function ScriptDashboardPage() {
         <h2 className="text-xs text-muted uppercase tracking-wider mb-3">Completion</h2>
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm">
-            {completion.recorded} / {completion.totalPerformable} performable chunks recorded
+            {completion.recorded} / {completion.totalPerformable} rehearsable chunks recorded
           </span>
           <span className="text-sm font-mono text-gold">{completion.percentage}%</span>
         </div>

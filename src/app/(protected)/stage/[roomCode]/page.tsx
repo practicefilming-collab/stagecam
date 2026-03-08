@@ -490,7 +490,7 @@ export default function WaitingRoomPage() {
                     Act {preview.actNumber} &middot; Scene {preview.sceneNumber}
                   </p>
                   <p className="text-sm text-muted mt-1">{preview.sceneHeading}</p>
-                  <p className="text-xs text-muted mt-1">{preview.totalChunks} performable chunks</p>
+                  <p className="text-xs text-muted mt-1">{preview.totalChunks} rehearsable chunks</p>
                 </div>
 
                 <div className="space-y-3">
@@ -628,7 +628,7 @@ export default function WaitingRoomPage() {
                     Act {preview.actNumber} &middot; Scene {preview.sceneNumber}
                   </p>
                   <p className="text-sm text-muted mt-1">{preview.sceneHeading}</p>
-                  <p className="text-xs text-muted mt-1">{preview.totalChunks} performable chunks</p>
+                  <p className="text-xs text-muted mt-1">{preview.totalChunks} rehearsable chunks</p>
                 </div>
 
                 <div className="space-y-3">

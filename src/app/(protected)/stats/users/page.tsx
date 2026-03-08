@@ -105,7 +105,7 @@ export default function UserStatsPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
           {[
             { label: 'Users', value: totals.totalUsers },
-            { label: 'Scripts', value: `${totals.scriptsWithRecordings}/${totals.totalScripts}` },
+            { label: 'Scripts Recorded', value: `${totals.scriptsWithRecordings} of ${totals.totalScripts}` },
             { label: 'Recordings', value: totals.totalRecordings },
             { label: 'Storage', value: formatStorage(totals.totalStorage) },
           ].map((item) => (
