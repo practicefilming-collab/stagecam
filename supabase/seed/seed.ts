@@ -4,6 +4,7 @@ import * as path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import { parseChunkedScript, extractTtsText } from './parse-chunks';
 import { uploadAudioFiles } from './upload-audio';
+import { computeRollCalls } from '../../src/lib/matchmaking/roll-call';
 
 // Configuration
 const PIPELINE_DIR = 'C:/Users/KYC/Desktop/top250_movies';
@@ -171,6 +172,10 @@ async function seedScript(filename: string) {
         (c) => !isSystemChunk(c.type, c.content)
       ).length;
 
+      const dialogueChunkCount = characterStats.reduce((sum, c) => sum + c.dialogue_chunks, 0);
+      const actionChunkCount = performableChunks - dialogueChunkCount;
+      const rollCalls = computeRollCalls(uniqueCharacters.length, actionChunkCount);
+
       const { data: sceneRecord, error: sceneError } = await supabase
         .from('scenes')
         .upsert({
@@ -181,6 +186,7 @@ async function seedScript(filename: string) {
           performable_chunks: performableChunks,
           unique_characters: uniqueCharacters,
           character_stats: characterStats,
+          roll_calls: rollCalls,
         }, { onConflict: 'act_id,scene_number' })
         .select()
         .single();

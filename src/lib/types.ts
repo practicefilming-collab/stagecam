@@ -48,6 +48,7 @@ export interface Scene {
   unique_characters: string[];
   character_stats?: { name: string; dialogue_chunks: number; total_chunks: number }[];
   performable_chunks: number;
+  roll_calls?: RollCallEntry[];
 }
 
 export interface Chunk {
@@ -139,6 +140,13 @@ export interface RoomPresence {
   userId: string;
   displayName: string;
   joinedAt: string;
+}
+
+export interface RollCallEntry {
+  participants: number;
+  characters: number;
+  narrators: number;
+  actionsPerNarrator: number;
 }
 
 // Parsed chunk from pipeline markdown
