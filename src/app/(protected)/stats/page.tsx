@@ -37,7 +37,7 @@ export default function AdminHubPage() {
   return (
     <div className="max-w-2xl mx-auto px-4 py-16 min-h-[calc(100vh-3.5rem)]">
       <h1 className="text-3xl font-bold text-gold mb-12 text-center">
-        Admin Hub
+        Admin Stats
       </h1>
 
       <div className="grid gap-6 md:grid-cols-2">

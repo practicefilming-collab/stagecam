@@ -31,19 +31,21 @@ export async function GET() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
 
-  // Get emails for all users via admin API
+  // Get emails and last sign-in for all users via admin API
   const emailMap = new Map<string, string>();
+  const lastLoginMap = new Map<string, string | null>();
   const { data: { users: authUsers } } = await serviceClient.auth.admin.listUsers({ perPage: 1000 });
   if (authUsers) {
     for (const au of authUsers) {
       if (au.email) emailMap.set(au.id, au.email);
+      lastLoginMap.set(au.id, au.last_sign_in_at ?? null);
     }
   }
 
-  // Get recording stats per user
+  // Get recording stats per user, joining rooms to get script_id
   const { data: recordings } = await supabase
     .from('recordings')
-    .select('user_id, room_id, size_bytes');
+    .select('user_id, room_id, size_bytes, rooms!inner(script_id)');
 
   const userStats = new Map<string, { scripts: Set<string>; totalRecordings: number; storageBytes: number }>();
 
@@ -53,7 +55,10 @@ export async function GET() {
       stats = { scripts: new Set(), totalRecordings: 0, storageBytes: 0 };
       userStats.set(rec.user_id, stats);
     }
-    stats.scripts.add(rec.room_id);
+    const room = rec.rooms as unknown as { script_id: string };
+    if (room?.script_id) {
+      stats.scripts.add(room.script_id);
+    }
     stats.totalRecordings++;
     stats.storageBytes += rec.size_bytes ?? 0;
   }
@@ -66,6 +71,7 @@ export async function GET() {
       authProvider: p.auth_provider ?? 'unknown',
       username: p.platform_username || emailMap.get(p.id) || null,
       joinedAt: p.created_at,
+      lastLoginAt: lastLoginMap.get(p.id) ?? null,
       scriptsParticipated: stats?.scripts.size ?? 0,
       totalRecordings: stats?.totalRecordings ?? 0,
       storageBytes: stats?.storageBytes ?? 0,

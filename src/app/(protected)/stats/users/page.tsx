@@ -10,6 +10,7 @@ interface UserStat {
   authProvider: string;
   username: string | null;
   joinedAt: string;
+  lastLoginAt: string | null;
   scriptsParticipated: number;
   totalRecordings: number;
   storageBytes: number;
@@ -85,7 +86,7 @@ export default function UserStatsPage() {
   return (
     <div className="max-w-4xl mx-auto px-4 py-12">
       <Link href="/stats" className="text-xs text-muted hover:text-foreground transition-colors">
-        &larr; Admin Hub
+        &larr; Admin Stats
       </Link>
 
       <h1 className="text-2xl font-bold text-gold mt-3 mb-8">Users</h1>
@@ -101,17 +102,20 @@ export default function UserStatsPage() {
                 <span className="font-medium">{u.displayName || 'Unnamed'}</span>
                 {providerBadge(u.authProvider)}
               </div>
-              <span className="text-xs text-muted">{formatDate(u.joinedAt)}</span>
+              {u.username && (
+                <span className="text-sm text-muted">{u.username}</span>
+              )}
             </div>
 
-            {u.username && (
-              <p className="text-sm text-muted mb-2">{u.username}</p>
-            )}
-
-            <div className="flex items-center gap-6 text-xs text-muted">
+            <div className="flex items-center gap-6 text-xs text-muted mb-3">
               <span>{u.scriptsParticipated} script{u.scriptsParticipated !== 1 ? 's' : ''}</span>
               <span>{u.totalRecordings} recording{u.totalRecordings !== 1 ? 's' : ''}</span>
               <span>{formatStorage(u.storageBytes)}</span>
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-muted border-t border-border pt-3">
+              <span>Last Login: {u.lastLoginAt ? formatDate(u.lastLoginAt) : '—'}</span>
+              <span>Created: {formatDate(u.joinedAt)}</span>
             </div>
           </div>
         ))}

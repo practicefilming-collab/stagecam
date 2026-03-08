@@ -49,7 +49,7 @@ export default function CoverageStatsPage() {
   return (
     <div className="max-w-4xl mx-auto px-4 py-12">
       <Link href="/stats" className="text-xs text-muted hover:text-foreground transition-colors">
-        &larr; Admin Hub
+        &larr; Admin Stats
       </Link>
 
       <div className="flex items-center justify-between mt-3 mb-8">
