@@ -1,7 +1,7 @@
 /** Sequential scene playback: recordings → TTS fallback → text display. System chunks badged as Narrator. */
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface PlaybackItem {
   chunkId: string;
@@ -67,13 +67,13 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
 
   const current = items[currentIdx] ?? null;
 
-  const playNext = () => {
+  const playNext = useCallback(() => {
     if (currentIdx < items.length - 1) {
       setCurrentIdx((prev) => prev + 1);
     } else {
       setPlaying(false);
     }
-  };
+  }, [currentIdx, items.length]);
 
   // Auto-play current item when it changes
   useEffect(() => {
@@ -90,7 +90,7 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
       const timer = setTimeout(playNext, 3000);
       return () => clearTimeout(timer);
     }
-  }, [currentIdx, playing]);
+  }, [current, playNext, playing]);
 
   const handlePlay = () => {
     setPlaying(true);

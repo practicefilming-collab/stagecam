@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
 interface ScriptRequestItem {
@@ -20,7 +20,7 @@ export default function RequestsPage() {
   const [loading, setLoading] = useState(true);
   const supabase = createClient();
 
-  const loadRequests = async () => {
+  const loadRequests = useCallback(async () => {
     const res = await fetch('/api/requests');
     const data = await res.json();
 
@@ -39,9 +39,14 @@ export default function RequestsPage() {
 
     setRequests(data);
     setLoading(false);
-  };
+  }, [supabase]);
 
-  useEffect(() => { loadRequests(); }, []);
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      void loadRequests();
+    }, 0);
+    return () => clearTimeout(timeout);
+  }, [loadRequests]);
 
   const submitRequest = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -9,22 +9,9 @@ interface ChunkBreakdownProps {
   performable: number;
 }
 
-const segments = [
-  { key: 'dialogue', label: 'Dialogue', color: 'bg-gold' },
-  { key: 'action', label: 'Action', color: 'bg-gold/50' },
-  { key: 'system', label: 'System', color: 'bg-border' },
-] as const;
-
 export default function ChunkBreakdown(props: ChunkBreakdownProps) {
   const total = props.dialogue + props.action + props.sceneHeading + props.transition;
   if (total === 0) return null;
-
-  // Group: dialogue, action (performable non-dialogue), system
-  const data = [
-    { label: 'Dialogue', count: props.dialogue, color: 'bg-gold' },
-    { label: 'Action', count: props.action - (props.system - props.sceneHeading - props.transition), color: 'bg-gold/50' },
-    { label: 'System', count: props.system, color: 'bg-zinc-600' },
-  ].filter((d) => d.count > 0);
 
   // Recalculate to ensure counts are correct
   const performableAction = props.performable - props.dialogue;

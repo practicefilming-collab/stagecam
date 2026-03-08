@@ -2,6 +2,7 @@ import { normalizeScriptText } from '@/lib/utils';
 import { r2, R2_BUCKET } from '@/lib/r2';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 export interface PlaybackItem {
   chunkId: string;
@@ -39,7 +40,7 @@ export interface ScenePlaybackData {
 }
 
 export async function buildScenePlaybackData(
-  supabase: any,
+  supabase: SupabaseClient,
   sceneId: string
 ): Promise<ScenePlaybackData | null> {
   const { data: scene } = await supabase

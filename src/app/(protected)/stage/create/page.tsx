@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import type { Script, SelectionMode } from '@/lib/types';
@@ -12,7 +12,7 @@ export default function CreateStagePage() {
   const [creating, setCreating] = useState(false);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     async function loadScripts() {
@@ -23,8 +23,8 @@ export default function CreateStagePage() {
       setScripts(data ?? []);
       setLoading(false);
     }
-    loadScripts();
-  }, []);
+    void loadScripts();
+  }, [supabase]);
 
   const createRoom = async () => {
     if (!selectedScript) return;

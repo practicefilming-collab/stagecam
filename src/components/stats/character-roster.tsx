@@ -10,6 +10,7 @@ interface CharacterRosterProps {
 const INITIAL_SHOW = 10;
 
 export default function CharacterRoster({ characters, totalDialogue }: CharacterRosterProps) {
+  void totalDialogue;
   const [expanded, setExpanded] = useState(false);
 
   if (characters.length === 0) return null;

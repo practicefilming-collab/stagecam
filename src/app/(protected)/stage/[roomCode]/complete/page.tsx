@@ -28,13 +28,13 @@ export default function CompletePage() {
       setLoading(false);
     }
     loadRoom();
-  }, [roomCode]);
+  }, [roomCode, supabase]);
 
   return (
     <div className="max-w-lg mx-auto px-4 py-8 spotlight min-h-[calc(100vh-3.5rem)]">
       <div className="text-center mb-6">
         <div className="text-4xl mb-3">🎬</div>
-        <h1 className="text-2xl font-bold text-gold mb-2">That's a Wrap!</h1>
+        <h1 className="text-2xl font-bold text-gold mb-2">That&apos;s a Wrap!</h1>
         <p className="text-muted text-sm">
           Your recordings are in. Watch the full scene below.
         </p>

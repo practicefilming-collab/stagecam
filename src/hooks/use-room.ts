@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Room, RoomParticipant, Script, Act, Scene } from '@/lib/types';
 
@@ -11,7 +11,7 @@ export function useRoom(roomCode: string) {
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [participants, setParticipants] = useState<RoomParticipant[]>([]);
   const [loading, setLoading] = useState(true);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     async function load() {
@@ -47,8 +47,8 @@ export function useRoom(roomCode: string) {
 
       setLoading(false);
     }
-    load();
-  }, [roomCode]);
+    void load();
+  }, [roomCode, supabase]);
 
   return { room, script, acts, scenes, participants, loading };
 }

@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 import { isAdmin } from '@/lib/admin';
 
 export async function GET(
-  request: Request,
+  _request: Request,
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params;
@@ -74,7 +74,7 @@ export async function GET(
   const allSceneIds = allScenes.map((s) => s.id);
 
   // 3-5. Parallel queries: chunks, recordings, rooms
-  const [chunksResult, recordingsResult, roomsResult] = await Promise.all([
+  const [chunksResult, , roomsResult] = await Promise.all([
     // 3. All chunks for aggregation
     supabase
       .from('chunks')

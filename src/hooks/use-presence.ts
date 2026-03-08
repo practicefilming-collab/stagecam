@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { RealtimePresenceState } from '@supabase/supabase-js';
 
 export function usePresence(roomCode: string) {
   const [presenceState, setPresenceState] = useState<RealtimePresenceState>({});
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     const channel = supabase.channel(`room:${roomCode}`, {
@@ -39,7 +39,7 @@ export function usePresence(roomCode: string) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [roomCode]);
+  }, [roomCode, supabase]);
 
   return { presenceState };
 }

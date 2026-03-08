@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { usePresence } from '@/hooks/use-presence';
@@ -75,6 +75,25 @@ export default function WaitingRoomPage() {
   const { presenceState } = usePresence(roomCode);
   const participants = Object.values(presenceState).flat() as unknown as RoomPresence[];
 
+  const loadScriptDetails = useCallback(async (scriptId: string) => {
+    const { data: actsData } = await supabase
+      .from('acts')
+      .select('*')
+      .eq('script_id', scriptId)
+      .order('act_number');
+    setActs(actsData ?? []);
+
+    if (actsData && actsData.length > 0) {
+      const actIds = actsData.map((a) => a.id);
+      const { data: scenesData } = await supabase
+        .from('scenes')
+        .select('*')
+        .in('act_id', actIds)
+        .order('scene_number');
+      setScenes(scenesData ?? []);
+    }
+  }, [supabase]);
+
   // Load room data
   useEffect(() => {
     async function loadRoom() {
@@ -115,8 +134,8 @@ export default function WaitingRoomPage() {
         router.push(`/stage/${roomCode}/rehearse`);
       }
     }
-    loadRoom();
-  }, [roomCode]);
+    void loadRoom();
+  }, [loadScriptDetails, roomCode, router, supabase]);
 
   // Load available scripts
   useEffect(() => {
@@ -127,8 +146,8 @@ export default function WaitingRoomPage() {
         .order('rank', { ascending: true });
       setScripts(data ?? []);
     }
-    loadScripts();
-  }, []);
+    void loadScripts();
+  }, [supabase]);
 
   // Listen for room status changes + ready broadcasts
   useEffect(() => {
@@ -151,26 +170,7 @@ export default function WaitingRoomPage() {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [roomCode]);
-
-  async function loadScriptDetails(scriptId: string) {
-    const { data: actsData } = await supabase
-      .from('acts')
-      .select('*')
-      .eq('script_id', scriptId)
-      .order('act_number');
-    setActs(actsData ?? []);
-
-    if (actsData && actsData.length > 0) {
-      const actIds = actsData.map((a) => a.id);
-      const { data: scenesData } = await supabase
-        .from('scenes')
-        .select('*')
-        .in('act_id', actIds)
-        .order('scene_number');
-      setScenes(scenesData ?? []);
-    }
-  }
+  }, [roomCode, router, supabase]);
 
   const selectScript = async (scriptId: string) => {
     if (!room) return;
@@ -709,7 +709,7 @@ export default function WaitingRoomPage() {
 }
 
 function ReadyButton({ onReady, readyUsers }: { onReady: () => void; readyUsers: Set<string> }) {
-  const [isReady, setIsReady] = useState(false);
+  const [localReady, setLocalReady] = useState(false);
   const supabase = createClient();
   const [userId, setUserId] = useState<string | null>(null);
 
@@ -717,16 +717,12 @@ function ReadyButton({ onReady, readyUsers }: { onReady: () => void; readyUsers:
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) setUserId(user.id);
     });
-  }, []);
+  }, [supabase.auth]);
 
-  useEffect(() => {
-    if (userId && readyUsers.has(userId)) {
-      setIsReady(true);
-    }
-  }, [userId, readyUsers]);
+  const isReady = localReady || !!(userId && readyUsers.has(userId));
 
   const handleReady = () => {
-    setIsReady(true);
+    setLocalReady(true);
     onReady();
   };
 

@@ -42,6 +42,7 @@ export function parseChunkedScript(filePath: string): ParsedChunk[] {
 }
 
 export function extractTtsText(chunkText: string, type: string): string {
+  void type;
   // For dialogue, the content IS the tts text
   // For action/transition, same
   // For scene_heading, we keep it as-is

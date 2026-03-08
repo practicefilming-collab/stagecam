@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useMediaDevices } from '@/hooks/use-media-devices';
@@ -11,7 +11,7 @@ export default function RehearsePage() {
   const params = useParams();
   const roomCode = params.roomCode as string;
   const router = useRouter();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const { stream, error: mediaError, hasPermission, videoRef, requestPermission } = useMediaDevices();
   const { state: recState, blob, previewUrl, duration, mimeType, startRecording, stopRecording, reset } = useRecording();
@@ -74,21 +74,21 @@ export default function RehearsePage() {
 
       setLoading(false);
     }
-    load();
-  }, [roomCode]);
+    void load();
+  }, [roomCode, router, supabase]);
 
   useEffect(() => {
     if (!hasPermission) {
       requestPermission();
     }
-  }, []);
+  }, [hasPermission, requestPermission]);
 
   const currentChunk = chunks[currentChunkIdx] ?? null;
   const currentAssignment = assignedChunks.find(
     (a) => a.chunk_id === currentChunk?.id
   );
 
-  const uploadRecording = useCallback(async () => {
+  const uploadRecording = async () => {
     if (!blob || !currentChunk || !room) return;
     setUploading(true);
     setUploadError('');
@@ -161,7 +161,7 @@ export default function RehearsePage() {
       setUploadError(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
       setUploading(false);
     }
-  }, [blob, currentChunk, room, duration, mimeType, currentChunkIdx, chunks.length]);
+  };
 
   if (loading) {
     return (
