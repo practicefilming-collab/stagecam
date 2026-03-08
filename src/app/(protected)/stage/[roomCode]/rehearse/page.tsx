@@ -138,6 +138,7 @@ export default function RehearsePage() {
           room_id: room.id,
           video_url: key,
           duration_seconds: duration,
+          size_bytes: blob.size,
         }),
       });
 

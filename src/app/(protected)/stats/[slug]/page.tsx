@@ -105,7 +105,7 @@ export default function ScriptDashboardPage() {
   return (
     <div className="max-w-4xl mx-auto px-4 py-12">
       {/* Back link + Script Header */}
-      <Link href="/stats" className="text-xs text-muted hover:text-foreground transition-colors">
+      <Link href="/stats/coverage" className="text-xs text-muted hover:text-foreground transition-colors">
         &larr; All Scripts
       </Link>
 

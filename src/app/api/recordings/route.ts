@@ -10,7 +10,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { chunk_id, room_id, video_url, duration_seconds } = body;
+  const { chunk_id, room_id, video_url, duration_seconds, size_bytes } = body;
 
   const { data, error } = await supabase
     .from('recordings')
@@ -20,6 +20,7 @@ export async function POST(request: Request) {
       room_id,
       video_url,
       duration_seconds,
+      size_bytes: size_bytes ?? null,
     })
     .select()
     .single();
