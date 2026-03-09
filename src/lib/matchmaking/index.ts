@@ -132,6 +132,10 @@ export async function runMatchmaking(
     totalChunks: performableCount,
     systemChunks: systemChunkCount,
     assignments,
+    characters: characters.map((c) => ({
+      name: c.name,
+      dialogueCount: c.dialogueChunkCount,
+    })),
   };
 }
 

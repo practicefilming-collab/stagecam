@@ -63,6 +63,7 @@ export async function GET(
       totalChunks: result.totalChunks,
       systemChunks: result.systemChunks,
       callSheet: result.assignments,
+      characters: result.characters,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Preview failed';

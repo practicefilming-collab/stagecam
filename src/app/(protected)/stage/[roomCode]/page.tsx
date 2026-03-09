@@ -15,7 +15,12 @@ interface CallSheetEntry {
   actionCount: number;
 }
 
-interface PickPreviewData {
+interface SceneCharacter {
+  name: string;
+  dialogueCount: number;
+}
+
+interface PreviewData {
   mode: 'pick';
   sceneId: string;
   sceneHeading: string;
@@ -24,9 +29,13 @@ interface PickPreviewData {
   totalChunks: number;
   systemChunks: number;
   callSheet: CallSheetEntry[];
+  characters: SceneCharacter[];
 }
 
-type PreviewData = PickPreviewData;
+interface RoleClaim {
+  userId: string;
+  displayName: string;
+}
 
 type Stage = 'script' | 'scene' | 'callsheet';
 
@@ -39,6 +48,7 @@ export default function BackstagePage() {
   const [room, setRoom] = useState<Room | null>(null);
   const [isCreator, setIsCreator] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentDisplayName, setCurrentDisplayName] = useState<string>('Unknown');
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
 
@@ -57,8 +67,13 @@ export default function BackstagePage() {
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
+  // Role draft state
+  const [roleClaims, setRoleClaims] = useState<Map<string, RoleClaim>>(new Map());
+  const [wantsNarrator, setWantsNarrator] = useState(false);
+
   // Ready state
   const [readyUsers, setReadyUsers] = useState<Set<string>>(new Set());
+  const [isReady, setIsReady] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState('');
 
@@ -67,6 +82,17 @@ export default function BackstagePage() {
 
   const { presenceState } = usePresence(roomCode);
   const participants = Object.values(presenceState).flat() as unknown as RoomPresence[];
+
+  // Derived: my claimed roles
+  const myRoles = preview?.characters.filter(
+    (c) => roleClaims.get(c.name)?.userId === currentUserId
+  ) ?? [];
+  const hasRole = myRoles.length > 0 || wantsNarrator;
+
+  // Derived: narration line count
+  const narrationCount = preview
+    ? preview.totalChunks - preview.characters.reduce((s, c) => s + c.dialogueCount, 0)
+    : 0;
 
   const loadScriptDetails = useCallback(async (scriptId: string) => {
     const { data: actsData } = await supabase
@@ -93,6 +119,13 @@ export default function BackstagePage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setCurrentUserId(user.id);
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('display_name')
+        .eq('id', user.id)
+        .single();
+      setCurrentDisplayName(profile?.display_name ?? 'Unknown');
 
       const { data: roomData } = await supabase
         .from('rooms')
@@ -143,7 +176,7 @@ export default function BackstagePage() {
     void loadScripts();
   }, [supabase]);
 
-  // Listen for room status changes + ready broadcasts
+  // Listen for room status changes + ready broadcasts + role claims
   useEffect(() => {
     const channel = supabase
       .channel(`room-status:${roomCode}`)
@@ -160,6 +193,30 @@ export default function BackstagePage() {
       })
       .on('broadcast', { event: 'user_ready' }, (payload) => {
         setReadyUsers((prev) => new Set([...prev, payload.payload.userId]));
+      })
+      .on('broadcast', { event: 'user_unready' }, (payload) => {
+        setReadyUsers((prev) => {
+          const next = new Set(prev);
+          next.delete(payload.payload.userId);
+          return next;
+        });
+      })
+      .on('broadcast', { event: 'role_claim' }, (payload) => {
+        const { characterName, userId, displayName, action } = payload.payload;
+        setRoleClaims((prev) => {
+          const next = new Map(prev);
+          if (action === 'claim') {
+            next.set(characterName, { userId, displayName });
+          } else if (action === 'release') {
+            // Release all roles held by this user
+            for (const [name, claim] of next) {
+              if (claim.userId === userId) {
+                next.delete(name);
+              }
+            }
+          }
+          return next;
+        });
       })
       .subscribe();
 
@@ -220,6 +277,12 @@ export default function BackstagePage() {
     setStage('callsheet');
     setPreviewLoading(false);
 
+    // Reset role draft state
+    setRoleClaims(new Map());
+    setWantsNarrator(false);
+    setIsReady(false);
+    setReadyUsers(new Set());
+
     // Broadcast to other participants
     const channel = supabase.channel(`room-status:${roomCode}`);
     await channel.subscribe();
@@ -230,18 +293,89 @@ export default function BackstagePage() {
     });
   };
 
-  const markReady = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+  const claimRole = async (characterName: string) => {
+    if (!currentUserId || isReady) return;
 
-    setReadyUsers((prev) => new Set([...prev, user.id]));
+    setRoleClaims((prev) => {
+      const next = new Map(prev);
+      next.set(characterName, { userId: currentUserId, displayName: currentDisplayName });
+      return next;
+    });
+
+    const channel = supabase.channel(`room-status:${roomCode}`);
+    await channel.subscribe();
+    await channel.send({
+      type: 'broadcast',
+      event: 'role_claim',
+      payload: { characterName, userId: currentUserId, displayName: currentDisplayName, action: 'claim' },
+    });
+  };
+
+  const releaseMyRole = async (characterName: string) => {
+    if (!currentUserId || isReady) return;
+
+    setRoleClaims((prev) => {
+      const next = new Map(prev);
+      next.delete(characterName);
+      return next;
+    });
+
+    const channel = supabase.channel(`room-status:${roomCode}`);
+    await channel.subscribe();
+    await channel.send({
+      type: 'broadcast',
+      event: 'role_claim',
+      payload: { characterName, userId: currentUserId, displayName: currentDisplayName, action: 'release_one' },
+    });
+  };
+
+  const markReady = async () => {
+    if (!currentUserId) return;
+
+    setIsReady(true);
+    setReadyUsers((prev) => new Set([...prev, currentUserId]));
 
     const channel = supabase.channel(`room-status:${roomCode}`);
     await channel.subscribe();
     await channel.send({
       type: 'broadcast',
       event: 'user_ready',
-      payload: { userId: user.id },
+      payload: { userId: currentUserId },
+    });
+  };
+
+  const unready = async () => {
+    if (!currentUserId) return;
+
+    // Release all my roles
+    setRoleClaims((prev) => {
+      const next = new Map(prev);
+      for (const [name, claim] of next) {
+        if (claim.userId === currentUserId) {
+          next.delete(name);
+        }
+      }
+      return next;
+    });
+    setWantsNarrator(false);
+    setIsReady(false);
+    setReadyUsers((prev) => {
+      const next = new Set(prev);
+      next.delete(currentUserId);
+      return next;
+    });
+
+    const channel = supabase.channel(`room-status:${roomCode}`);
+    await channel.subscribe();
+    await channel.send({
+      type: 'broadcast',
+      event: 'role_claim',
+      payload: { characterName: null, userId: currentUserId, displayName: currentDisplayName, action: 'release' },
+    });
+    await channel.send({
+      type: 'broadcast',
+      event: 'user_unready',
+      payload: { userId: currentUserId },
     });
   };
 
@@ -291,6 +425,18 @@ export default function BackstagePage() {
     ? scenes.filter((s) => s.act_id === selectedActId)
     : scenes;
 
+  // Separate characters into my roles, claimed by others, and available
+  const availableRoles = preview?.characters.filter((c) => !roleClaims.has(c.name)) ?? [];
+  const othersClaims = preview?.characters.filter(
+    (c) => {
+      const claim = roleClaims.get(c.name);
+      return claim && claim.userId !== currentUserId;
+    }
+  ) ?? [];
+
+  // Count unclaimed roles for the start warning
+  const unclaimedCount = availableRoles.length;
+
   return (
     <div className="max-w-2xl mx-auto px-4 py-12 spotlight min-h-[calc(100vh-3.5rem)]">
       {/* Room Code Header */}
@@ -335,7 +481,7 @@ export default function BackstagePage() {
         </div>
       </div>
 
-      {/* Creator Flow */}
+      {/* Creator Flow — Script & Scene Selection */}
       {isCreator ? (
         <>
           {/* Stage 1: Script Selection */}
@@ -467,90 +613,9 @@ export default function BackstagePage() {
               </button>
             </div>
           )}
-
-          {/* Stage 3: Call Sheet */}
-          {stage === 'callsheet' && preview && (
-            <>
-              <div className="bg-surface border border-border rounded-2xl p-6 mb-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-sm text-muted uppercase tracking-wider">Call Sheet</h2>
-                  <button
-                    onClick={() => { setStage('scene'); setPreview(null); setReadyUsers(new Set()); }}
-                    className="text-xs text-muted hover:text-foreground transition-colors"
-                  >
-                    Change Scene
-                  </button>
-                </div>
-
-                <div className="text-center mb-4 pb-4 border-b border-border">
-                  <p className="text-gold font-medium">
-                    Act {preview.actNumber} &middot; Scene {preview.sceneNumber}
-                  </p>
-                  <p className="text-sm text-muted mt-1">{preview.sceneHeading}</p>
-                  <p className="text-xs text-muted mt-1">{preview.totalChunks} rehearsable chunks</p>
-                </div>
-
-                <div className="space-y-3">
-                  {preview.callSheet.map((entry) => (
-                    <div
-                      key={entry.userId}
-                      className={`p-4 rounded-xl border transition-all ${
-                        readyUsers.has(entry.userId)
-                          ? 'border-green-500/50 bg-green-500/5'
-                          : 'border-border bg-background/50'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-medium text-sm">{entry.displayName}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted">{entry.totalChunks} chunks</span>
-                          {readyUsers.has(entry.userId) && (
-                            <span className="text-xs text-green-400">Ready</span>
-                          )}
-                        </div>
-                      </div>
-                      {entry.character ? (
-                        <p className="text-xs text-gold">
-                          {entry.character}
-                          {entry.actionCount > 0 ? (
-                            <span className="text-muted ml-2">
-                              ({entry.dialogueCount} dialogue, {entry.actionCount} other)
-                            </span>
-                          ) : (
-                            <span className="text-muted ml-2">
-                              ({entry.dialogueCount} dialogue)
-                            </span>
-                          )}
-                        </p>
-                      ) : (
-                        <p className="text-xs text-muted">
-                          {entry.totalChunks} chunks ({entry.dialogueCount} dialogue, {entry.actionCount} other)
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Ready / Start buttons */}
-              <div className="space-y-3">
-                <ReadyButton onReady={markReady} readyUsers={readyUsers} />
-                <button
-                  onClick={startSession}
-                  disabled={starting}
-                  className="w-full py-3 bg-gold text-black rounded-xl font-semibold text-lg hover:bg-gold-dim transition-colors disabled:opacity-50"
-                >
-                  {starting
-                    ? 'Starting...'
-                    : `Start Rehearsal (${readyUsers.size}/${Math.max(participants.length, 1)} ready)`}
-                </button>
-              </div>
-            </>
-          )}
-
         </>
       ) : (
-        /* Non-creator view */
+        /* Non-creator: waiting messages for script/scene stages */
         <>
           {stage === 'script' && (
             <p className="text-muted text-sm text-center">
@@ -562,67 +627,194 @@ export default function BackstagePage() {
               The director is selecting a scene...
             </p>
           )}
-          {stage === 'callsheet' && preview && (
-            <>
-              <div className="bg-surface border border-border rounded-2xl p-6 mb-6">
-                <h2 className="text-sm text-muted mb-4 uppercase tracking-wider text-center">Call Sheet</h2>
+        </>
+      )}
 
-                <div className="text-center mb-4 pb-4 border-b border-border">
-                  <p className="text-gold font-medium">
-                    Act {preview.actNumber} &middot; Scene {preview.sceneNumber}
-                  </p>
-                  <p className="text-sm text-muted mt-1">{preview.sceneHeading}</p>
-                  <p className="text-xs text-muted mt-1">{preview.totalChunks} rehearsable chunks</p>
-                </div>
+      {/* Stage 3: Call Sheet + Role Draft (shared by creator and non-creator) */}
+      {stage === 'callsheet' && preview && (
+        <>
+          <div className="bg-surface border border-border rounded-2xl p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm text-muted uppercase tracking-wider">Call Sheet</h2>
+              {isCreator && (
+                <button
+                  onClick={() => {
+                    setStage('scene');
+                    setPreview(null);
+                    setReadyUsers(new Set());
+                    setRoleClaims(new Map());
+                    setWantsNarrator(false);
+                    setIsReady(false);
+                  }}
+                  className="text-xs text-muted hover:text-foreground transition-colors"
+                >
+                  Change Scene
+                </button>
+              )}
+            </div>
 
-                <div className="space-y-3">
-                  {preview.callSheet.map((entry) => (
-                    <div
-                      key={entry.userId}
-                      className={`p-4 rounded-xl border transition-all ${
-                        readyUsers.has(entry.userId)
-                          ? 'border-green-500/50 bg-green-500/5'
-                          : 'border-border bg-background/50'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-medium text-sm">{entry.displayName}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted">{entry.totalChunks} chunks</span>
-                          {readyUsers.has(entry.userId) && (
-                            <span className="text-xs text-green-400">Ready</span>
-                          )}
-                        </div>
+            {/* Scene header */}
+            <div className="text-center mb-4 pb-4 border-b border-border">
+              <p className="text-gold font-medium">
+                Act {preview.actNumber} &middot; Scene {preview.sceneNumber}
+              </p>
+              <p className="text-sm text-muted mt-1">{preview.sceneHeading}</p>
+              <p className="text-xs text-muted mt-1">{preview.totalChunks} rehearsable chunks</p>
+            </div>
+
+            {/* Your Roles */}
+            {myRoles.length > 0 && (
+              <div className="mb-4">
+                <h3 className="text-xs text-muted uppercase tracking-wider mb-2">Your Roles</h3>
+                <div className="space-y-2">
+                  {myRoles.map((c) => (
+                    <div key={c.name} className="flex items-center justify-between p-3 rounded-xl border border-gold/30 bg-gold/5">
+                      <div>
+                        <span className="text-sm font-medium text-gold">{c.name}</span>
+                        <span className="text-xs text-muted ml-2">{c.dialogueCount} lines</span>
                       </div>
-                      {entry.character ? (
-                        <p className="text-xs text-gold">
-                          {entry.character}
-                          {entry.actionCount > 0 ? (
-                            <span className="text-muted ml-2">
-                              ({entry.dialogueCount} dialogue, {entry.actionCount} other)
-                            </span>
-                          ) : (
-                            <span className="text-muted ml-2">
-                              ({entry.dialogueCount} dialogue)
-                            </span>
-                          )}
-                        </p>
+                      {isReady ? (
+                        <span className="text-xs text-green-400">Ready</span>
                       ) : (
-                        <p className="text-xs text-muted">
-                          {entry.totalChunks} chunks ({entry.dialogueCount} dialogue, {entry.actionCount} other)
-                        </p>
+                        <button
+                          onClick={() => releaseMyRole(c.name)}
+                          className="text-xs text-muted hover:text-red-400 transition-colors px-2 py-1"
+                        >
+                          Remove
+                        </button>
                       )}
                     </div>
                   ))}
+                  {wantsNarrator && (
+                    <div className="flex items-center justify-between p-3 rounded-xl border border-gold/30 bg-gold/5">
+                      <div>
+                        <span className="text-sm font-medium text-gold">Narrator</span>
+                        <span className="text-xs text-muted ml-2">{narrationCount} lines</span>
+                      </div>
+                      {isReady ? (
+                        <span className="text-xs text-green-400">Ready</span>
+                      ) : (
+                        <button
+                          onClick={() => setWantsNarrator(false)}
+                          className="text-xs text-muted hover:text-red-400 transition-colors px-2 py-1"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
+            )}
 
-              <ReadyButton onReady={markReady} readyUsers={readyUsers} />
-              <p className="text-muted text-xs text-center mt-3">
+            {/* Claimed by others */}
+            {othersClaims.length > 0 && (
+              <div className="mb-4">
+                <h3 className="text-xs text-muted uppercase tracking-wider mb-2">Claimed</h3>
+                <div className="space-y-2">
+                  {othersClaims.map((c) => {
+                    const claim = roleClaims.get(c.name)!;
+                    return (
+                      <div key={c.name} className="flex items-center justify-between p-3 rounded-xl border border-border bg-background/50">
+                        <div>
+                          <span className="text-sm font-medium">{c.name}</span>
+                          <span className="text-xs text-muted ml-2">{c.dialogueCount} lines</span>
+                        </div>
+                        <span className="text-xs text-muted">{claim.displayName}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Available Roles */}
+            {!isReady && (availableRoles.length > 0 || (!wantsNarrator && narrationCount > 0)) && (
+              <div>
+                <h3 className="text-xs text-muted uppercase tracking-wider mb-2">Available Roles</h3>
+                <div className="space-y-2">
+                  {availableRoles.map((c) => (
+                    <button
+                      key={c.name}
+                      onClick={() => claimRole(c.name)}
+                      className="w-full flex items-center justify-between p-3 rounded-xl border border-border bg-background/50 hover:border-gold/30 hover:bg-gold/5 transition-all text-left"
+                    >
+                      <div>
+                        <span className="text-sm font-medium">{c.name}</span>
+                        <span className="text-xs text-muted ml-2">{c.dialogueCount} lines</span>
+                      </div>
+                      <span className="text-xs text-gold">Claim</span>
+                    </button>
+                  ))}
+                  {!wantsNarrator && narrationCount > 0 && (
+                    <button
+                      onClick={() => setWantsNarrator(true)}
+                      className="w-full flex items-center justify-between p-3 rounded-xl border border-border bg-background/50 hover:border-gold/30 hover:bg-gold/5 transition-all text-left"
+                    >
+                      <div>
+                        <span className="text-sm font-medium text-muted">+ Narrator</span>
+                        <span className="text-xs text-muted ml-2">{narrationCount} lines</span>
+                      </div>
+                      <span className="text-xs text-gold">Claim</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Ready / Unready / Start buttons */}
+          <div className="space-y-3">
+            {!isReady && hasRole && (
+              <button
+                onClick={markReady}
+                className="w-full py-3 rounded-xl font-semibold transition-colors bg-surface border border-gold text-gold hover:bg-gold/10"
+              >
+                Mark as Ready
+              </button>
+            )}
+            {!isReady && !hasRole && (
+              <p className="text-xs text-muted text-center py-3">
+                Select at least one role to ready up
+              </p>
+            )}
+            {isReady && (
+              <>
+                <div className="w-full py-3 rounded-xl font-semibold text-center bg-green-500/20 text-green-400 border border-green-500/30">
+                  Ready!
+                </div>
+                <button
+                  onClick={unready}
+                  className="w-full py-2 text-sm text-muted hover:text-foreground transition-colors"
+                >
+                  Unready
+                </button>
+              </>
+            )}
+            {isCreator && (
+              <>
+                {unclaimedCount > 0 && (
+                  <p className="text-xs text-muted text-center">
+                    {unclaimedCount} role{unclaimedCount !== 1 ? 's' : ''} unclaimed — will be auto-assigned
+                  </p>
+                )}
+                <button
+                  onClick={startSession}
+                  disabled={starting}
+                  className="w-full py-3 bg-gold text-black rounded-xl font-semibold text-lg hover:bg-gold-dim transition-colors disabled:opacity-50"
+                >
+                  {starting
+                    ? 'Starting...'
+                    : `Start Rehearsal (${readyUsers.size}/${Math.max(participants.length, 1)} ready)`}
+                </button>
+              </>
+            )}
+            {!isCreator && (
+              <p className="text-muted text-xs text-center">
                 Waiting for the director to start the session...
               </p>
-            </>
-          )}
+            )}
+          </div>
         </>
       )}
 
@@ -631,38 +823,5 @@ export default function BackstagePage() {
         <p className="text-red-400 text-sm text-center mt-4">{error}</p>
       )}
     </div>
-  );
-}
-
-function ReadyButton({ onReady, readyUsers }: { onReady: () => void; readyUsers: Set<string> }) {
-  const [localReady, setLocalReady] = useState(false);
-  const supabase = createClient();
-  const [userId, setUserId] = useState<string | null>(null);
-
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) setUserId(user.id);
-    });
-  }, [supabase.auth]);
-
-  const isReady = localReady || !!(userId && readyUsers.has(userId));
-
-  const handleReady = () => {
-    setLocalReady(true);
-    onReady();
-  };
-
-  return (
-    <button
-      onClick={handleReady}
-      disabled={isReady}
-      className={`w-full py-3 rounded-xl font-semibold transition-colors ${
-        isReady
-          ? 'bg-green-500/20 text-green-400 border border-green-500/30 cursor-default'
-          : 'bg-surface border border-gold text-gold hover:bg-gold/10'
-      }`}
-    >
-      {isReady ? 'Ready!' : 'Mark as Ready'}
-    </button>
   );
 }

@@ -19,6 +19,7 @@ export interface MatchmakingResult {
   totalChunks: number;
   systemChunks: number;
   assignments: ParticipantAssignment[];
+  characters: { name: string; dialogueCount: number }[];
 }
 
 export interface ParticipantAssignment {
