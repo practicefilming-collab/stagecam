@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+
 interface ActProgress {
   actNumber: number;
   recorded: number;
@@ -84,6 +86,12 @@ export default function RoleCall({ characters, grouped }: { characters: Characte
                 );
               })}
             </div>
+
+            {!isComplete && (
+              <Link href={`/stats/${char.scriptSlug}`} className="text-xs text-gold/70 hover:text-gold mt-3 inline-block">
+                Continue recording →
+              </Link>
+            )}
           </div>
         );
       })}
