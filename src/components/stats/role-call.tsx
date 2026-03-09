@@ -46,9 +46,10 @@ export default function RoleCall({ characters }: { characters: CharacterCard[] }
                 <p className="text-xs text-muted mt-0.5">
                   {char.scriptTitle}{char.scriptYear ? ` (${char.scriptYear})` : ''}
                 </p>
+                <p className="text-xs text-muted/60">{char.totalChunks} line{char.totalChunks !== 1 ? 's' : ''}</p>
               </div>
               <span className={`text-sm font-mono ${isComplete ? 'text-gold' : 'text-muted'}`}>
-                {char.completionPct}%
+                {char.completionPct === 0 && char.totalRecorded > 0 ? '< 1%' : `${char.completionPct}%`}
               </span>
             </div>
 
@@ -67,7 +68,7 @@ export default function RoleCall({ characters }: { characters: CharacterCard[] }
                 return (
                   <div key={act.actNumber} className="flex items-center gap-3">
                     <span className="text-xs text-muted w-10 flex-shrink-0">Act {act.actNumber}</span>
-                    <div className="flex-1 h-1.5 bg-border rounded-full overflow-hidden">
+                    <div className="flex-1 h-2.5 bg-border rounded-full overflow-hidden">
                       <div
                         className={`h-full rounded-full transition-all ${actComplete ? 'bg-gold' : 'bg-gold/50'}`}
                         style={{ width: act.total > 0 ? `${(act.recorded / act.total) * 100}%` : '0%' }}

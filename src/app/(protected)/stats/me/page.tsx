@@ -48,7 +48,8 @@ export default function MyStatsPage() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-12">
-      <h1 className="text-2xl font-bold text-gold mb-8">Your Role Call</h1>
+      <h1 className="text-2xl font-bold text-gold mb-1">Your Role Call</h1>
+      <p className="text-sm text-muted mb-8">Your characters, progress, and recording history.</p>
 
       {summary && summary.totalRecordings > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
