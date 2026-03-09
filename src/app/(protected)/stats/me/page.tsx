@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import RoleCall from '@/components/stats/role-call';
 
 interface Summary {
@@ -10,18 +11,24 @@ interface Summary {
   typeBreakdown: { dialogue: number; action: number; scene_heading: number; transition: number };
 }
 
-interface RecentSession {
-  recordingId: string;
+interface SceneEntry {
   character: string | null;
+  count: number;
+  recordingIds: string[];
+}
+
+interface RecentScene {
+  sceneId: string;
   sceneHeading: string | null;
   scriptTitle: string;
-  createdAt: string;
+  date: string;
+  entries: SceneEntry[];
 }
 
 export default function MyStatsPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [characters, setCharacters] = useState<any[]>([]);
-  const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
+  const [recentScenes, setRecentScenes] = useState<RecentScene[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [breakdownOpen, setBreakdownOpen] = useState(false);
@@ -32,7 +39,7 @@ export default function MyStatsPage() {
       if (res.ok) {
         const data = await res.json();
         setCharacters(data.characters);
-        setRecentSessions(data.recentSessions);
+        setRecentScenes(data.recentScenes ?? []);
         setSummary(data.summary);
       }
       setLoading(false);
@@ -137,25 +144,33 @@ export default function MyStatsPage() {
         );
       })()}
 
-      {recentSessions.length > 0 && (
+      {recentScenes.length > 0 && (
         <section className="mt-8">
-          <h2 className="text-xs text-muted uppercase tracking-wider mb-3">Recent Recordings</h2>
-          <div className="bg-surface border border-border rounded-2xl divide-y divide-border">
-            {recentSessions.map((session) => (
-              <div key={session.recordingId} className="px-4 py-3 flex items-center justify-between">
-                <div>
-                  {session.character && (
-                    <span className="text-gold text-sm font-medium mr-2">{session.character}</span>
-                  )}
-                  <span className="text-sm text-muted">{session.sceneHeading || 'Unknown scene'}</span>
+          <h2 className="text-xs text-muted uppercase tracking-wider mb-3">Recent Scenes</h2>
+          <div className="space-y-3">
+            {recentScenes.map((scene) => (
+              <Link
+                key={`${scene.sceneId}-${scene.date}`}
+                href={`/panel/${scene.sceneId}`}
+                className="block bg-surface border border-border rounded-2xl p-4 hover:border-gold/40 transition-colors"
+              >
+                <p className="text-sm font-medium text-foreground">
+                  {scene.sceneHeading || 'Unknown scene'}
+                </p>
+                <p className="text-xs text-muted mt-0.5">
+                  {scene.scriptTitle} · {new Date(scene.date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                </p>
+                <div className="mt-2 space-y-0.5">
+                  {scene.entries.map((entry) => (
+                    <p key={entry.character ?? '__narrator__'} className="text-xs text-muted">
+                      <span className={entry.character ? 'text-gold' : 'text-muted/60'}>
+                        {entry.character ?? 'Narrator'}
+                      </span>
+                      {' '}×{entry.count}
+                    </p>
+                  ))}
                 </div>
-                <div className="text-right">
-                  <p className="text-xs text-muted">{session.scriptTitle}</p>
-                  <p className="text-xs text-muted/60">
-                    {new Date(session.createdAt).toLocaleDateString()}
-                  </p>
-                </div>
-              </div>
+              </Link>
             ))}
           </div>
         </section>

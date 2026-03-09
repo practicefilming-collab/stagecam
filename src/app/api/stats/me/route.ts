@@ -168,17 +168,49 @@ export async function GET() {
     };
   }).sort((a, b) => b.totalRecorded - a.totalRecorded);
 
-  // Recent sessions: group recordings by date
-  const recentSessions = recordings.slice(0, 20).map(rec => {
+  // Recent scenes: group recordings by (scene_id, date), then by character
+  const sceneGroupMap = new Map<string, {
+    sceneId: string;
+    sceneHeading: string | null;
+    scriptTitle: string;
+    date: string;
+    entriesMap: Map<string, { character: string | null; count: number; recordingIds: string[] }>;
+  }>();
+
+  for (const rec of recordings) {
     const chunk = rec.chunks as unknown as ChunkJoin;
-    return {
-      recordingId: rec.id,
-      character: chunk.character,
-      sceneHeading: chunk.scenes.scene_heading,
-      scriptTitle: chunk.scenes.acts.scripts.title,
-      createdAt: rec.created_at,
-    };
-  });
+    const date = rec.created_at.slice(0, 10); // ISO date (day only)
+    const groupKey = `${chunk.scenes.id}::${date}`;
+    const charKey = chunk.character ?? '__narrator__';
+
+    if (!sceneGroupMap.has(groupKey)) {
+      sceneGroupMap.set(groupKey, {
+        sceneId: chunk.scenes.id,
+        sceneHeading: chunk.scenes.scene_heading,
+        scriptTitle: chunk.scenes.acts.scripts.title,
+        date,
+        entriesMap: new Map(),
+      });
+    }
+
+    const group = sceneGroupMap.get(groupKey)!;
+    if (!group.entriesMap.has(charKey)) {
+      group.entriesMap.set(charKey, { character: chunk.character, count: 0, recordingIds: [] });
+    }
+    const entry = group.entriesMap.get(charKey)!;
+    entry.count++;
+    entry.recordingIds.push(rec.id);
+  }
+
+  const recentScenes = [...sceneGroupMap.values()]
+    .slice(0, 10)
+    .map(g => ({
+      sceneId: g.sceneId,
+      sceneHeading: g.sceneHeading,
+      scriptTitle: g.scriptTitle,
+      date: g.date,
+      entries: [...g.entriesMap.values()],
+    }));
 
   // Build summary including all recording types (not just dialogue)
   const uniqueScriptIds = new Set<string>();
@@ -200,5 +232,5 @@ export async function GET() {
     typeBreakdown,
   };
 
-  return NextResponse.json({ characters, recentSessions, summary });
+  return NextResponse.json({ characters, recentScenes, summary });
 }
