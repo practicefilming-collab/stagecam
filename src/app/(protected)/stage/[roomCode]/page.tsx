@@ -421,6 +421,37 @@ export default function BackstagePage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const [confirmLeave, setConfirmLeave] = useState(false);
+
+  const leaveRoom = async () => {
+    if (isCreator && !confirmLeave) {
+      setConfirmLeave(true);
+      return;
+    }
+
+    // Release any claimed roles
+    if (currentUserId && myRoles.length > 0) {
+      const channel = supabase.channel(`room-status:${roomCode}`);
+      await channel.subscribe();
+      await channel.send({
+        type: 'broadcast',
+        event: 'role_claim',
+        payload: { characterName: null, userId: currentUserId, displayName: currentDisplayName, action: 'release' },
+      });
+    }
+
+    // Remove participant record
+    if (room && currentUserId) {
+      await supabase
+        .from('room_participants')
+        .delete()
+        .eq('room_id', room.id)
+        .eq('user_id', currentUserId);
+    }
+
+    router.push('/menu');
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)]">
@@ -830,6 +861,36 @@ export default function BackstagePage() {
       {/* Error */}
       {error && (
         <p className="text-red-400 text-sm text-center mt-4">{error}</p>
+      )}
+
+      {/* Leave Room */}
+      {confirmLeave ? (
+        <div className="text-center mt-6 space-y-2">
+          <p className="text-sm text-muted">
+            You&apos;re the director. Leaving will end the session for everyone.
+          </p>
+          <div className="flex gap-3 justify-center">
+            <button
+              onClick={leaveRoom}
+              className="px-4 py-2 text-sm text-red-400 hover:text-red-300 transition-colors"
+            >
+              Leave anyway
+            </button>
+            <button
+              onClick={() => setConfirmLeave(false)}
+              className="px-4 py-2 text-sm text-muted hover:text-foreground transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={leaveRoom}
+          className="w-full py-2 text-sm text-muted hover:text-red-400 transition-colors mt-6"
+        >
+          Leave Room
+        </button>
       )}
     </div>
   );
