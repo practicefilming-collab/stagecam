@@ -157,6 +157,7 @@ export async function GET() {
 
     return {
       character: entry.character,
+      scriptId: entry.scriptId,
       scriptTitle: entry.scriptTitle,
       scriptYear: entry.scriptYear,
       scriptSlug: entry.scriptSlug,

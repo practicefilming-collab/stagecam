@@ -8,6 +8,7 @@ interface ActProgress {
 
 interface CharacterCard {
   character: string;
+  scriptId?: string;
   scriptTitle: string;
   scriptYear: number | null;
   scriptSlug: string;
@@ -17,7 +18,7 @@ interface CharacterCard {
   completionPct: number;
 }
 
-export default function RoleCall({ characters }: { characters: CharacterCard[] }) {
+export default function RoleCall({ characters, grouped }: { characters: CharacterCard[]; grouped?: boolean }) {
   if (characters.length === 0) {
     return (
       <div className="text-center py-12">
@@ -43,9 +44,11 @@ export default function RoleCall({ characters }: { characters: CharacterCard[] }
                 <h3 className={`font-semibold ${isComplete ? 'text-gold' : 'text-foreground'}`}>
                   {char.character}
                 </h3>
-                <p className="text-xs text-muted mt-0.5">
-                  {char.scriptTitle}{char.scriptYear ? ` (${char.scriptYear})` : ''}
-                </p>
+                {!grouped && (
+                  <p className="text-xs text-muted mt-0.5">
+                    {char.scriptTitle}{char.scriptYear ? ` (${char.scriptYear})` : ''}
+                  </p>
+                )}
                 <p className="text-xs text-muted/60">{char.totalChunks} line{char.totalChunks !== 1 ? 's' : ''}</p>
               </div>
               <span className={`text-sm font-mono ${isComplete ? 'text-gold' : 'text-muted'}`}>

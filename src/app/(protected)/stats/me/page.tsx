@@ -109,7 +109,33 @@ export default function MyStatsPage() {
         );
       })()}
 
-      <RoleCall characters={characters} />
+      {(() => {
+        const scriptGroups = new Map<string, { title: string; year: number | null; chars: typeof characters }>();
+        for (const c of characters) {
+          const key = c.scriptId || c.scriptSlug;
+          if (!scriptGroups.has(key)) {
+            scriptGroups.set(key, { title: c.scriptTitle, year: c.scriptYear, chars: [] });
+          }
+          scriptGroups.get(key)!.chars.push(c);
+        }
+        const groups = [...scriptGroups.values()];
+        const isGrouped = groups.length > 1;
+        return (
+          <>
+            {groups.map((group) => (
+              <div key={group.title}>
+                {isGrouped && (
+                  <h2 className="text-sm font-medium text-muted mb-2">
+                    {group.title}{group.year ? ` (${group.year})` : ''}
+                  </h2>
+                )}
+                <p className="text-xs text-muted/50 mb-2">Sorted by most recorded</p>
+                <RoleCall characters={group.chars} grouped={isGrouped} />
+              </div>
+            ))}
+          </>
+        );
+      })()}
 
       {recentSessions.length > 0 && (
         <section className="mt-8">
