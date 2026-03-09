@@ -32,6 +32,7 @@ export default function MyStatsPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [breakdownOpen, setBreakdownOpen] = useState(false);
+  const [scenesShown, setScenesShown] = useState(5);
 
   useEffect(() => {
     async function load() {
@@ -148,7 +149,7 @@ export default function MyStatsPage() {
         <section className="mt-8">
           <h2 className="text-xs text-muted uppercase tracking-wider mb-3">Recent Scenes</h2>
           <div className="space-y-3">
-            {recentScenes.map((scene) => (
+            {recentScenes.slice(0, scenesShown).map((scene) => (
               <Link
                 key={`${scene.sceneId}-${scene.date}`}
                 href={`/panel/${scene.sceneId}`}
@@ -173,6 +174,14 @@ export default function MyStatsPage() {
               </Link>
             ))}
           </div>
+          {scenesShown < recentScenes.length && (
+            <button
+              onClick={() => setScenesShown(s => s + 5)}
+              className="w-full mt-3 py-2 text-xs text-muted hover:text-gold transition-colors bg-surface border border-border rounded-xl"
+            >
+              Show more
+            </button>
+          )}
         </section>
       )}
     </div>
