@@ -46,6 +46,7 @@ export default function BackstagePage() {
 
   const [room, setRoom] = useState<Room | null>(null);
   const [isCreator, setIsCreator] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
 
@@ -99,6 +100,7 @@ export default function BackstagePage() {
     async function loadRoom() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
+      setCurrentUserId(user.id);
 
       const { data: roomData } = await supabase
         .from('rooms')
@@ -330,6 +332,9 @@ export default function BackstagePage() {
                 stage === 'callsheet' && readyUsers.has(p.userId) ? 'bg-green-500' : 'bg-gold/50'
               }`} />
               <span>{p.displayName}</span>
+              {p.userId === currentUserId && (
+                <span className="text-muted text-xs ml-1">(you)</span>
+              )}
             </div>
           ))}
           {participants.length === 0 && (
