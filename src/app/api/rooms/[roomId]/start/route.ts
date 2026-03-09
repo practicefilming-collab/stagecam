@@ -33,6 +33,17 @@ export async function POST(
     return NextResponse.json({ error: 'No script selected' }, { status: 400 });
   }
 
+  // Parse optional role draft from request body
+  let roleDraft: Record<string, string[]> | undefined;
+  try {
+    const body = await request.json();
+    if (body.roleDraft && typeof body.roleDraft === 'object') {
+      roleDraft = body.roleDraft;
+    }
+  } catch {
+    // No body or invalid JSON — proceed without role draft
+  }
+
   // Get participants
   const { data: participants } = await supabase
     .from('room_participants')
@@ -56,6 +67,7 @@ export async function POST(
       selectedSceneId: room.selected_scene_id,
       participantIds,
       participantNames,
+      roleDraft,
     });
 
     // Write assignments to room_participants

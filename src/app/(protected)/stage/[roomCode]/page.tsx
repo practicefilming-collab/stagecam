@@ -384,8 +384,17 @@ export default function BackstagePage() {
     setStarting(true);
     setError('');
 
+    // Build roleDraft from current claims
+    const draft: Record<string, string[]> = {};
+    for (const [characterName, claim] of roleClaims) {
+      if (!draft[claim.userId]) draft[claim.userId] = [];
+      draft[claim.userId].push(characterName);
+    }
+
     const res = await fetch(`/api/rooms/${room.id}/start`, {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roleDraft: draft }),
     });
 
     if (!res.ok) {

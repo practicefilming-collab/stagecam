@@ -112,7 +112,7 @@ export async function runMatchmaking(
     .sort((a, b) => b.dialogueChunkCount - a.dialogueChunkCount);
 
   // ── Assign characters + distribute chunks ──
-  const characterAssignments = assignCharacters(characters, context.participantIds);
+  const characterAssignments = assignCharacters(characters, context.participantIds, context.roleDraft);
   const assignments = distributeChunks(
     chunks as Chunk[],
     characterAssignments,

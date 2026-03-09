@@ -9,6 +9,7 @@ export interface MatchmakingContext {
   selectedSceneId: string | null;
   participantIds: string[];
   participantNames: Map<string, string>;
+  roleDraft?: Record<string, string[]>;  // userId → character names claimed
 }
 
 export interface MatchmakingResult {
