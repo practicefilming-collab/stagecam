@@ -38,7 +38,7 @@ type PreviewData = PickPreviewData | AutoPreviewData;
 
 type Stage = 'script' | 'scene' | 'callsheet';
 
-export default function WaitingRoomPage() {
+export default function BackstagePage() {
   const params = useParams();
   const roomCode = params.roomCode as string;
   const router = useRouter();
@@ -301,7 +301,7 @@ export default function WaitingRoomPage() {
     <div className="max-w-2xl mx-auto px-4 py-12 spotlight min-h-[calc(100vh-3.5rem)]">
       {/* Room Code Header */}
       <div className="text-center mb-8">
-        <h1 className="text-2xl font-bold text-gold mb-2">Waiting Room</h1>
+        <h1 className="text-2xl font-bold text-gold mb-2">Backstage</h1>
         <div className="mb-4">
           <button
             onClick={copyCode}
@@ -561,7 +561,7 @@ export default function WaitingRoomPage() {
                     onClick={() => { setStage('scene'); setPreview(null); setReadyUsers(new Set()); }}
                     className="text-xs text-muted hover:text-foreground transition-colors"
                   >
-                    Change Mode
+                    Change Scene
                   </button>
                 </div>
 
