@@ -4,13 +4,36 @@ How to find approved PRDs, implement them, and maintain traceability.
 
 ## Step 1 — Find Outstanding Approvals
 
-Scan `prd-board/approved/*/COMMITS.md` for files with an empty table (no hash entries). These are approved PRDs with no implementation commits yet.
+Scan `prd-board/approved/*/COMMITS.md` for two cases:
+
+1. **No commits at all** — empty table, PRD never started.
+2. **Partially complete** — commits exist but not all phases are covered. Cross-reference the phases listed in the PRD's Section 7 (Implementation Order) against the "PRD Phase" column in COMMITS.md.
 
 ```bash
-# Quick check: find COMMITS.md files with no hash rows
-for f in prd-board/approved/*/COMMITS.md; do
-  rows=$(grep -cE '^\| [0-9a-f]' "$f" 2>/dev/null || echo 0)
-  if [ "$rows" -eq 0 ]; then echo "OUTSTANDING: $(dirname "$f" | xargs basename)"; fi
+# Check each approved PRD for missing phases
+for dir in prd-board/approved/*/; do
+  prd=$(basename "$dir")
+  commits_file="$dir/COMMITS.md"
+  prd_file=$(ls "$dir"/*.md 2>/dev/null | grep -v COMMITS | grep -v APPROVED | head -1)
+
+  # Count committed phases
+  committed=$(grep -oE 'Phase [0-9]+' "$commits_file" 2>/dev/null | sort -u | wc -l)
+
+  # Count total phases from Section 7 (Implementation Order) table
+  # Match rows under that heading — phases have scope/files/risk columns
+  total=0
+  if [ -n "$prd_file" ]; then
+    total=$(sed -n '/## 7/,/## 8/p' "$prd_file" 2>/dev/null | grep -cE '^\| [0-9]+ \|' || echo 0)
+  fi
+
+  if [ "$committed" -eq 0 ]; then
+    echo "NOT STARTED: $prd (0/$total phases)"
+  elif [ "$committed" -lt "$total" ]; then
+    done_phases=$(grep -oE 'Phase [0-9]+' "$commits_file" | sort -u | tr '\n' ',' | sed 's/,$//')
+    echo "IN PROGRESS: $prd ($committed/$total phases done: $done_phases)"
+  else
+    echo "COMPLETE: $prd ($committed/$total phases)"
+  fi
 done
 ```
 
