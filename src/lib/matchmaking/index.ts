@@ -47,7 +47,7 @@ export async function runMatchmaking(
       const charStats = (s.character_stats ?? []) as { name: string; dialogue_chunks: number; total_chunks: number }[];
       const recordingCount = coverageMap.get(s.id) ?? 0;
       const dialogueChunkCount = charStats.reduce((sum, c) => sum + c.dialogue_chunks, 0);
-      const performable = s.performable_chunks ?? s.total_chunks;
+      const performable = s.rehearsable_chunks ?? s.total_chunks;
 
       return {
         scene: s,
@@ -135,58 +135,3 @@ export async function runMatchmaking(
   };
 }
 
-/**
- * Returns aggregate stats for auto mode preview (no scene selected).
- */
-export async function getAutoPreviewStats(
-  supabase: SupabaseClient,
-  scriptId: string,
-  selectedActId: string | null,
-  participantCount: number
-): Promise<{
-  mode: 'auto';
-  candidateScenes: number;
-  averageCoverage: number;
-  participantCount: number;
-  estimatedChunksPerPerson: number;
-}> {
-  let scenesQuery = supabase.from('scenes').select('*, acts!inner(act_number, script_id)');
-
-  if (selectedActId) {
-    scenesQuery = scenesQuery.eq('act_id', selectedActId);
-  } else {
-    scenesQuery = scenesQuery.eq('acts.script_id', scriptId);
-  }
-
-  const { data: scenes } = await scenesQuery;
-
-  if (!scenes || scenes.length === 0) {
-    return {
-      mode: 'auto',
-      candidateScenes: 0,
-      averageCoverage: 0,
-      participantCount,
-      estimatedChunksPerPerson: 0,
-    };
-  }
-
-  const sceneIds = scenes.map((s) => s.id);
-  const coverageMap = await fetchSceneCoverageMap(supabase, sceneIds);
-
-  const totalPerformable = scenes.reduce((s, sc) => s + (sc.performable_chunks ?? sc.total_chunks), 0);
-  const totalRecorded = [...coverageMap.values()].reduce((s, c) => s + c, 0);
-  const avgCoverage = totalPerformable > 0 ? totalRecorded / totalPerformable : 0;
-
-  // Estimate: median performable chunk count / participantCount
-  const chunkCounts = scenes.map((s) => s.performable_chunks ?? s.total_chunks).sort((a, b) => a - b);
-  const medianChunks = chunkCounts[Math.floor(chunkCounts.length / 2)] ?? 0;
-  const estimated = participantCount > 0 ? Math.ceil(medianChunks / participantCount) : 0;
-
-  return {
-    mode: 'auto',
-    candidateScenes: scenes.length,
-    averageCoverage: Math.round(avgCoverage * 100) / 100,
-    participantCount,
-    estimatedChunksPerPerson: estimated,
-  };
-}

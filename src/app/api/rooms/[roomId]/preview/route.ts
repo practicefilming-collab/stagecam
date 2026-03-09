@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
-import { runMatchmaking, getAutoPreviewStats } from '@/lib/matchmaking';
+import { runMatchmaking } from '@/lib/matchmaking';
 
 export async function GET(
   request: Request,
@@ -42,18 +42,7 @@ export async function GET(
     participantNames.set(p.user_id, profile?.display_name ?? 'Unknown');
   });
 
-  // ── Auto mode: return aggregate stats only (no scene selected yet) ──
-  if (room.selection_mode === 'auto' && !room.selected_scene_id) {
-    const stats = await getAutoPreviewStats(
-      supabase,
-      room.script_id,
-      room.selected_act_id,
-      participantIds.length
-    );
-    return NextResponse.json(stats);
-  }
-
-  // ── Pick mode (or auto with pre-selected scene): run full matchmaking for preview ──
+  // ── Run matchmaking for both auto and pick modes ──
   try {
     const result = await runMatchmaking(supabase, {
       roomId,

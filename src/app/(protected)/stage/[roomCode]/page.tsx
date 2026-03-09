@@ -26,15 +26,7 @@ interface PickPreviewData {
   callSheet: CallSheetEntry[];
 }
 
-interface AutoPreviewData {
-  mode: 'auto';
-  candidateScenes: number;
-  averageCoverage: number;
-  participantCount: number;
-  estimatedChunksPerPerson: number;
-}
-
-type PreviewData = PickPreviewData | AutoPreviewData;
+type PreviewData = PickPreviewData;
 
 type Stage = 'script' | 'scene' | 'callsheet';
 
@@ -476,8 +468,8 @@ export default function BackstagePage() {
             </div>
           )}
 
-          {/* Stage 3: Call Sheet (pick mode) or Auto-Match Summary (auto mode) */}
-          {stage === 'callsheet' && preview && preview.mode === 'pick' && (
+          {/* Stage 3: Call Sheet */}
+          {stage === 'callsheet' && preview && (
             <>
               <div className="bg-surface border border-border rounded-2xl p-6 mb-6">
                 <div className="flex items-center justify-between mb-4">
@@ -556,59 +548,6 @@ export default function BackstagePage() {
             </>
           )}
 
-          {/* Stage 3: Auto-Match Summary */}
-          {stage === 'callsheet' && preview && preview.mode === 'auto' && (
-            <>
-              <div className="bg-surface border border-border rounded-2xl p-6 mb-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-sm text-muted uppercase tracking-wider">Auto-Match Summary</h2>
-                  <button
-                    onClick={() => { setStage('scene'); setPreview(null); setReadyUsers(new Set()); }}
-                    className="text-xs text-muted hover:text-foreground transition-colors"
-                  >
-                    Change Scene
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div className="text-center p-3 rounded-xl bg-background/50 border border-border">
-                    <p className="text-2xl font-bold text-gold">{preview.participantCount}</p>
-                    <p className="text-xs text-muted mt-1">Participants</p>
-                  </div>
-                  <div className="text-center p-3 rounded-xl bg-background/50 border border-border">
-                    <p className="text-2xl font-bold text-gold">{preview.candidateScenes}</p>
-                    <p className="text-xs text-muted mt-1">Candidate Scenes</p>
-                  </div>
-                  <div className="text-center p-3 rounded-xl bg-background/50 border border-border">
-                    <p className="text-2xl font-bold text-gold">{Math.round(preview.averageCoverage * 100)}%</p>
-                    <p className="text-xs text-muted mt-1">Avg Coverage</p>
-                  </div>
-                  <div className="text-center p-3 rounded-xl bg-background/50 border border-border">
-                    <p className="text-2xl font-bold text-gold">~{preview.estimatedChunksPerPerson}</p>
-                    <p className="text-xs text-muted mt-1">Chunks / Person</p>
-                  </div>
-                </div>
-
-                <p className="text-xs text-muted text-center">
-                  Roles assigned when rehearsal starts
-                </p>
-              </div>
-
-              {/* Ready / Start buttons */}
-              <div className="space-y-3">
-                <ReadyButton onReady={markReady} readyUsers={readyUsers} />
-                <button
-                  onClick={startSession}
-                  disabled={starting}
-                  className="w-full py-3 bg-gold text-black rounded-xl font-semibold text-lg hover:bg-gold-dim transition-colors disabled:opacity-50"
-                >
-                  {starting
-                    ? 'Starting...'
-                    : `Start Rehearsal (${readyUsers.size}/${Math.max(participants.length, 1)} ready)`}
-                </button>
-              </div>
-            </>
-          )}
         </>
       ) : (
         /* Non-creator view */
@@ -623,7 +562,7 @@ export default function BackstagePage() {
               The director is selecting a scene...
             </p>
           )}
-          {stage === 'callsheet' && preview && preview.mode === 'pick' && (
+          {stage === 'callsheet' && preview && (
             <>
               <div className="bg-surface border border-border rounded-2xl p-6 mb-6">
                 <h2 className="text-sm text-muted mb-4 uppercase tracking-wider text-center">Call Sheet</h2>
@@ -676,24 +615,6 @@ export default function BackstagePage() {
                     </div>
                   ))}
                 </div>
-              </div>
-
-              <ReadyButton onReady={markReady} readyUsers={readyUsers} />
-              <p className="text-muted text-xs text-center mt-3">
-                Waiting for the director to start the session...
-              </p>
-            </>
-          )}
-          {stage === 'callsheet' && preview && preview.mode === 'auto' && (
-            <>
-              <div className="bg-surface border border-border rounded-2xl p-6 mb-6">
-                <h2 className="text-sm text-muted mb-4 uppercase tracking-wider text-center">Auto-Match Summary</h2>
-                <p className="text-sm text-muted text-center mb-4">
-                  {preview.candidateScenes} candidate scenes &middot; {Math.round(preview.averageCoverage * 100)}% avg coverage
-                </p>
-                <p className="text-xs text-muted text-center">
-                  Roles assigned when rehearsal starts
-                </p>
               </div>
 
               <ReadyButton onReady={markReady} readyUsers={readyUsers} />
