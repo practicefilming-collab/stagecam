@@ -19,10 +19,10 @@ with YAML frontmatter, then seeded into Supabase via `supabase/seed/seed.ts`.
 ### Chunk Classification
 
 Each chunk is typed (dialogue, action, scene_heading, transition) and
-classified as either **performable** (users record these) or **system**
+classified as either **rehearsable** (users record these) or **system**
 (always TTS narration — camera directions, SFX cues, short stage
 directions <=15 chars). Coverage and completion are measured against
-performable chunks only.
+rehearsable chunks only.
 
 ## Key Modules
 
