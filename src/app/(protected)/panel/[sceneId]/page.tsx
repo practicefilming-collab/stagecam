@@ -13,10 +13,10 @@ export default function PanelViewerPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-bold text-gold">Panel Viewer</h1>
         <Link
-          href="/panel"
+          href="/history"
           className="text-xs text-muted hover:text-foreground transition-colors"
         >
-          Back to Panels
+          Back to Main Stage
         </Link>
       </div>
 
