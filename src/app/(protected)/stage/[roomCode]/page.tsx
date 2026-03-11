@@ -45,6 +45,12 @@ interface RoleClaim {
   displayName: string;
 }
 
+interface SceneLineBreakdown {
+  rehearsableLines: number;
+  dialogueLines: number;
+  narrationLines: number;
+}
+
 type Stage = 'script' | 'scene' | 'callsheet';
 
 export default function BackstagePage() {
@@ -67,6 +73,7 @@ export default function BackstagePage() {
   // Scene selection
   const [acts, setActs] = useState<Act[]>([]);
   const [scenes, setScenes] = useState<Scene[]>([]);
+  const [sceneLineBreakdowns, setSceneLineBreakdowns] = useState<Record<string, SceneLineBreakdown>>({});
   const [mode, setMode] = useState<'auto' | 'pick'>('auto');
   const [pickMode, setPickMode] = useState<'length' | 'character' | 'group-size' | 'act-scene'>('length');
   const [selectedActId, setSelectedActId] = useState<string | null>(null);
@@ -123,7 +130,46 @@ export default function BackstagePage() {
         .select('*')
         .in('act_id', actIds)
         .order('scene_number');
-      setScenes(scenesData ?? []);
+      const nextScenes = scenesData ?? [];
+      setScenes(nextScenes);
+
+      const sceneIds = nextScenes.map((scene) => scene.id);
+      if (sceneIds.length === 0) {
+        setSceneLineBreakdowns({});
+        return;
+      }
+
+      const { data: chunkRows } = await supabase
+        .from('chunks')
+        .select('scene_id, type, character, is_system')
+        .in('scene_id', sceneIds);
+
+      const breakdowns: Record<string, SceneLineBreakdown> = {};
+      for (const scene of nextScenes) {
+        breakdowns[scene.id] = {
+          rehearsableLines: 0,
+          dialogueLines: 0,
+          narrationLines: 0,
+        };
+      }
+
+      for (const chunk of chunkRows ?? []) {
+        const breakdown = breakdowns[chunk.scene_id];
+        if (!breakdown || chunk.is_system) continue;
+
+        breakdown.rehearsableLines += 1;
+
+        if (chunk.type === 'dialogue' && chunk.character) {
+          breakdown.dialogueLines += 1;
+        } else {
+          breakdown.narrationLines += 1;
+        }
+      }
+
+      setSceneLineBreakdowns(breakdowns);
+    } else {
+      setScenes([]);
+      setSceneLineBreakdowns({});
     }
   }, [supabase]);
 
@@ -526,7 +572,8 @@ export default function BackstagePage() {
       const t = thresholds[selectedLengthTier];
       return scenes.filter((s) => {
         const maxDialogue = getMaxCharacterDialogueLines(s.character_stats);
-        return maxDialogue <= t.maxDialoguePerChar && getSceneRehearsableLines(s) <= t.maxRehearsable;
+        const rehearsableLines = sceneLineBreakdowns[s.id]?.rehearsableLines ?? getSceneRehearsableLines(s);
+        return maxDialogue <= t.maxDialoguePerChar && rehearsableLines <= t.maxRehearsable;
       });
     }
 
@@ -783,9 +830,10 @@ export default function BackstagePage() {
                     {pickScenes.map((scene) => {
                       const charStats = scene.character_stats ?? [];
                       const charCount = scene.unique_characters.length;
-                      const dialogueLines = charStats.reduce((sum, stat) => sum + stat.dialogue_chunks, 0);
-                      const rehearsableLines = getSceneRehearsableLines(scene);
-                      const narrationLines = Math.max(0, rehearsableLines - dialogueLines);
+                      const breakdown = sceneLineBreakdowns[scene.id];
+                      const dialogueLines = breakdown?.dialogueLines ?? charStats.reduce((sum, stat) => sum + stat.dialogue_chunks, 0);
+                      const rehearsableLines = breakdown?.rehearsableLines ?? getSceneRehearsableLines(scene);
+                      const narrationLines = breakdown?.narrationLines ?? Math.max(0, rehearsableLines - dialogueLines);
                       const breakdownParts = [
                         dialogueLines > 0 ? `${dialogueLines} dialogue` : null,
                         narrationLines > 0 ? `${narrationLines} narration` : null,
