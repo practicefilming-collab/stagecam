@@ -2,9 +2,11 @@
 
 import type { Profile } from '@/lib/types';
 import { getProviderColor } from '@/lib/auth/display-name';
+import { getPublicIdentitySummary } from '@/lib/auth/identity';
 
 export function UserBadge({ profile }: { profile: Profile }) {
-  const color = getProviderColor(profile.auth_provider);
+  const identity = getPublicIdentitySummary(profile);
+  const color = getProviderColor(identity.platform);
 
   return (
     <span
@@ -15,7 +17,8 @@ export function UserBadge({ profile }: { profile: Profile }) {
         className="w-1.5 h-1.5 rounded-full"
         style={{ backgroundColor: color }}
       />
-      {profile.display_name}
+      {identity.displayName}
+      <span className="text-[10px] opacity-70">{identity.platformLabel}</span>
     </span>
   );
 }

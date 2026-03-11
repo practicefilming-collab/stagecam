@@ -27,6 +27,7 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const isProtectedRoute = request.nextUrl.pathname.startsWith('/(protected)') ||
+    request.nextUrl.pathname.startsWith('/account') ||
     request.nextUrl.pathname.startsWith('/menu') ||
     request.nextUrl.pathname.startsWith('/stage') ||
     request.nextUrl.pathname.startsWith('/panel') ||
@@ -44,13 +45,23 @@ export async function middleware(request: NextRequest) {
   if (isProtectedRoute && user) {
     const { data: profile } = await supabase
       .from('profiles')
-      .select('terms_accepted_at')
+      .select('terms_accepted_at, public_identity_platform, public_identity_username')
       .eq('id', user.id)
       .single();
 
     if (profile && !profile.terms_accepted_at && !request.nextUrl.pathname.startsWith('/terms')) {
       const url = request.nextUrl.clone();
       url.pathname = '/terms';
+      return NextResponse.redirect(url);
+    }
+
+    const identityComplete = !!profile?.public_identity_platform &&
+      (profile.public_identity_platform === 'incognito' || !!profile.public_identity_username);
+
+    if (profile?.terms_accepted_at && !identityComplete && !request.nextUrl.pathname.startsWith('/identity')) {
+      const url = request.nextUrl.clone();
+      url.pathname = '/identity';
+      url.searchParams.set('next', request.nextUrl.pathname);
       return NextResponse.redirect(url);
     }
   }

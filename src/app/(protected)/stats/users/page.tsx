@@ -17,6 +17,8 @@ interface UserStat {
   displayName: string;
   authProvider: string;
   isAdmin: boolean;
+  publicIdentityPlatform: string;
+  publicIdentityLabel: string;
   username: string | null;
   joinedAt: string;
   lastLoginAt: string | null;
@@ -26,7 +28,7 @@ interface UserStat {
 }
 
 function formatStorage(bytes: number): string {
-  if (bytes === 0) return '—';
+  if (bytes === 0) return '-';
   if (bytes >= 1_073_741_824) {
     return `${(bytes / 1_073_741_824).toFixed(1)} GB`;
   }
@@ -77,7 +79,7 @@ export default function UserStatsPage() {
       }
       setLoading(false);
     }
-    load();
+    void load();
   }, []);
 
   useEffect(() => {
@@ -129,7 +131,7 @@ export default function UserStatsPage() {
               u.isAdmin ? 'border-gold shadow-[0_0_0_1px_rgba(212,175,55,0.25)]' : 'border-border'
             }`}
           >
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-2 gap-4">
               <div className="flex items-center gap-3">
                 <span className="font-medium">{u.displayName || 'Unnamed'}</span>
                 {providerBadge(u.authProvider)}
@@ -139,19 +141,18 @@ export default function UserStatsPage() {
                   </span>
                 )}
               </div>
-              {u.username && (
-                <span className="text-sm text-muted">{u.username}</span>
-              )}
+              <span className="text-sm text-muted text-right">{u.publicIdentityLabel}</span>
             </div>
 
             <div className="flex items-center gap-6 text-xs text-muted mb-3">
+              <span>Auth: {u.authProvider}</span>
               <span>{u.scriptsParticipated} script{u.scriptsParticipated !== 1 ? 's' : ''}</span>
               <span>{u.totalRecordings} recording{u.totalRecordings !== 1 ? 's' : ''}</span>
               <span>{formatStorage(u.storageBytes)}</span>
             </div>
 
             <div className="flex items-center justify-between text-xs text-muted border-t border-border pt-3">
-              <span>Last Login: {u.lastLoginAt ? formatDate(u.lastLoginAt) : '—'}</span>
+              <span>Last Login: {u.lastLoginAt ? formatDate(u.lastLoginAt) : '-'}</span>
               <span>Created: {formatDate(u.joinedAt)}</span>
             </div>
           </div>

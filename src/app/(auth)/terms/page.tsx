@@ -23,7 +23,7 @@ export default function TermsPage() {
       terms_version: TERMS_VERSION,
     }).eq('id', user.id);
 
-    router.push('/menu');
+    router.push('/identity');
   };
 
   return (
@@ -58,9 +58,8 @@ export default function TermsPage() {
           </p>
           <h3 className="text-foreground font-semibold">5. Privacy</h3>
           <p>
-            Users signing in via Google (&quot;Incognito&quot; mode) will appear as &quot;Incognito&quot;
-            in all cast lists. Instagram and TikTok users will appear with their
-            platform handle.
+            Google is used only for authentication. After signing in, you choose whether
+            StageCam shows you as Incognito or under an Instagram or TikTok handle.
           </p>
         </div>
 

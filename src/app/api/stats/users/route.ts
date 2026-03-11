@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { getPublicIdentitySummary } from '@/lib/auth/identity';
 import { NextResponse } from 'next/server';
 import { isAdmin } from '@/lib/admin';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
@@ -24,7 +25,7 @@ export async function GET() {
   // Fetch all profiles (serviceClient bypasses RLS)
   const { data: profiles } = await serviceClient
     .from('profiles')
-    .select('id, auth_provider, platform_username, display_name, created_at, is_admin')
+    .select('id, auth_provider, platform_username, display_name, public_identity_platform, public_identity_username, public_identity_source_url, created_at, is_admin')
     .order('created_at', { ascending: false });
 
   if (!profiles || profiles.length === 0) {
@@ -32,12 +33,10 @@ export async function GET() {
   }
 
   // Get emails and last sign-in for all users via admin API
-  const emailMap = new Map<string, string>();
   const lastLoginMap = new Map<string, string | null>();
   const { data: { users: authUsers } } = await serviceClient.auth.admin.listUsers({ perPage: 1000 });
   if (authUsers) {
     for (const au of authUsers) {
-      if (au.email) emailMap.set(au.id, au.email);
       lastLoginMap.set(au.id, au.last_sign_in_at ?? null);
     }
   }
@@ -65,12 +64,15 @@ export async function GET() {
 
   const users = profiles.map((p) => {
     const stats = userStats.get(p.id);
+    const identity = getPublicIdentitySummary(p);
     return {
       id: p.id,
-      displayName: p.display_name,
+      displayName: identity.displayName,
       authProvider: p.auth_provider ?? 'unknown',
       isAdmin: p.is_admin ?? false,
-      username: p.platform_username || emailMap.get(p.id) || null,
+      publicIdentityPlatform: identity.platform,
+      publicIdentityLabel: identity.summaryLabel,
+      username: identity.username ? `@${identity.username}` : null,
       joinedAt: p.created_at,
       lastLoginAt: lastLoginMap.get(p.id) ?? null,
       scriptsParticipated: stats?.scripts.size ?? 0,

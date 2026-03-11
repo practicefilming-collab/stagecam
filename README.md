@@ -68,6 +68,9 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
 ```
 
+Enable Google in Supabase Auth. StageCam uses Google only for authentication, then lets
+users choose a public identity inside the app as `Instagram`, `TikTok`, or `Incognito`.
+
 Run the dev server:
 
 ```bash

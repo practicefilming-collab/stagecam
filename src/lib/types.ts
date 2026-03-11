@@ -1,5 +1,6 @@
 /** Shared TypeScript interfaces matching the Supabase schema. */
 export type AuthProvider = 'instagram' | 'tiktok' | 'google';
+export type PublicIdentityPlatform = 'instagram' | 'tiktok' | 'incognito';
 
 export type LineType = 'scene_heading' | 'action' | 'dialogue' | 'transition';
 export type ChunkType = LineType;
@@ -13,6 +14,9 @@ export interface Profile {
   auth_provider: AuthProvider;
   platform_username: string | null;
   display_name: string;
+  public_identity_platform: PublicIdentityPlatform | null;
+  public_identity_username: string | null;
+  public_identity_source_url: string | null;
   terms_accepted_at: string | null;
   terms_version: string | null;
   is_admin: boolean;

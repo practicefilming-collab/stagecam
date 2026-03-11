@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { isPublicIdentityComplete } from '@/lib/auth/identity';
 import { redirect } from 'next/navigation';
 import { Header } from '@/components/layout/header';
 
@@ -22,6 +23,10 @@ export default async function ProtectedLayout({
 
   if (!profile?.terms_accepted_at) {
     redirect('/terms');
+  }
+
+  if (!isPublicIdentityComplete(profile)) {
+    redirect('/identity');
   }
 
   return (

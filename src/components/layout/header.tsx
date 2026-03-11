@@ -1,25 +1,25 @@
 'use client';
 
 import { useState } from 'react';
+import { getProfileDisplayName, getProfileIdentityLine } from '@/lib/auth/identity';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { useRouter } from 'next/navigation';
 import type { Profile } from '@/lib/types';
 
 export function Header({ profile }: { profile: Profile }) {
   const supabase = createClient();
-  const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
   const signOut = async () => {
-    await supabase.auth.signOut();
-    router.push('/');
+    await supabase.auth.signOut({ scope: 'local' });
+    window.location.href = '/api/auth/signout';
   };
 
   const links = [
     { href: '/menu', label: 'Menu' },
+    { href: '/account', label: 'Account' },
     { href: '/history', label: 'History' },
     { href: '/stats/me', label: 'Stats' },
     ...(profile.is_admin ? [{ href: '/stats', label: 'Admin Stats' }] : []),
@@ -27,6 +27,7 @@ export function Header({ profile }: { profile: Profile }) {
   ];
 
   const close = () => setOpen(false);
+  const identityLine = getProfileIdentityLine(profile);
 
   return (
     <header className="border-b border-border bg-surface/50 backdrop-blur-sm sticky top-0 z-50">
@@ -65,8 +66,11 @@ export function Header({ profile }: { profile: Profile }) {
             </Link>
           ))}
 
-          <div className="border-t border-border mt-2 pt-2 flex items-center justify-between px-3 py-2">
-            <span className="text-xs text-muted">{profile.display_name}</span>
+          <div className="border-t border-border mt-2 pt-2 flex items-center justify-between gap-3 px-3 py-2">
+            <div className="min-w-0">
+              <p className="text-xs text-foreground truncate">{getProfileDisplayName(profile)}</p>
+              <p className="text-[11px] text-muted truncate">{identityLine}</p>
+            </div>
             <button
               onClick={() => { close(); signOut(); }}
               className="text-xs text-muted hover:text-foreground transition-colors"
