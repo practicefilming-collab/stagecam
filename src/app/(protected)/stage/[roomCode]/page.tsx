@@ -142,6 +142,7 @@ export default function BackstagePage() {
   const [acts, setActs] = useState<Act[]>([]);
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [sceneLineBreakdowns, setSceneLineBreakdowns] = useState<Record<string, SceneLineBreakdown>>({});
+  const [sceneLineBreakdownsLoaded, setSceneLineBreakdownsLoaded] = useState(false);
   const [mode, setMode] = useState<'auto' | 'pick'>('auto');
   const [pickMode, setPickMode] = useState<'length' | 'character' | 'group-size' | 'act-scene'>('length');
   const [selectedActId, setSelectedActId] = useState<string | null>(null);
@@ -183,7 +184,23 @@ export default function BackstagePage() {
     ? preview.totalLines - preview.characters.reduce((s, c) => s + c.dialogueLines, 0)
     : 0;
 
+  // Auto-claim sole character for solo users
+  useEffect(() => {
+    if (
+      preview &&
+      participants.length === 1 &&
+      preview.characters.length === 1 &&
+      roleClaims.size === 0 &&
+      !isReady
+    ) {
+      claimRole(preview.characters[0].name);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preview, participants.length]);
+
   const loadScriptDetails = useCallback(async (scriptId: string) => {
+    setSceneLineBreakdownsLoaded(false);
+
     const { data: actsData } = await supabase
       .from('acts')
       .select('*')
@@ -204,6 +221,7 @@ export default function BackstagePage() {
       const sceneIds = nextScenes.map((scene) => scene.id);
       if (sceneIds.length === 0) {
         setSceneLineBreakdowns({});
+        setSceneLineBreakdownsLoaded(true);
         return;
       }
 
@@ -235,9 +253,11 @@ export default function BackstagePage() {
       }
 
       setSceneLineBreakdowns(breakdowns);
+      setSceneLineBreakdownsLoaded(true);
     } else {
       setScenes([]);
       setSceneLineBreakdowns({});
+      setSceneLineBreakdownsLoaded(true);
     }
   }, [supabase]);
 
@@ -637,6 +657,9 @@ export default function BackstagePage() {
   const getPickScenes = (): Scene[] => {
     if (pickMode === 'act-scene') return filteredScenes;
 
+    // Wait for accurate line data before showing filtered results
+    if (!sceneLineBreakdownsLoaded) return [];
+
     // All non-act-scene sub-modes also exclude empty placeholders
     const validScenes = scenes.filter((s) => !isEmptyScene(s));
 
@@ -934,7 +957,8 @@ export default function BackstagePage() {
                   <div className="max-h-72 overflow-y-auto space-y-1 mb-4">
                     {pickScenes.length === 0 && (
                       <p className="text-muted text-sm text-center py-4">
-                        {pickMode === 'character' && !selectedCharacter ? 'Select a character above' :
+                        {!sceneLineBreakdownsLoaded && pickMode !== 'act-scene' ? 'Loading scenes...' :
+                         pickMode === 'character' && !selectedCharacter ? 'Select a character above' :
                          pickMode === 'group-size' && selectedGroupSize === null ? 'Select a group size above' :
                          pickMode === 'length' && !selectedLengthTier ? 'Select a length above' :
                          'No scenes match'}

@@ -55,3 +55,12 @@ Chronological record of every PRD that enters review.
 - **Source**: requests/PRD-stage-roomCode-2026-03-11_2224/
 - **Status**: approved → moved to approved/
 - **Completed**: 2026-03-11T22:30:00Z
+
+---
+
+## PRD-stage-roomCode-2026-03-11_2337
+
+- **Moved to review**: 2026-03-12T00:00:00Z
+- **Source**: requests/PRD-stage-roomCode-2026-03-11_2337/
+- **Status**: approved → moved to approved/
+- **Completed**: 2026-03-12T00:00:00Z
