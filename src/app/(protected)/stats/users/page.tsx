@@ -143,7 +143,7 @@ export default function UserStatsPage() {
                 )}
               </div>
               <span className="text-sm text-muted text-right">
-                {u.authAccountLabel ? `Google: ${u.authAccountLabel}` : 'Google'}
+                {u.authAccountLabel ?? 'google'}
               </span>
             </div>
 
