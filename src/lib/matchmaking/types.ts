@@ -1,5 +1,5 @@
 /** Type definitions for the matchmaking pipeline. */
-import type { Scene, AssignedChunk } from '../types';
+import type { Scene, AssignedLine } from '../types';
 
 export interface MatchmakingContext {
   roomId: string;
@@ -17,8 +17,8 @@ export interface MatchmakingResult {
   sceneHeading: string | null;
   sceneNumber: number;
   actNumber: number;
-  totalChunks: number;
-  systemChunks: number;
+  totalLines: number;
+  systemLines: number;
   assignments: ParticipantAssignment[];
   characters: { name: string; dialogueCount: number }[];
 }
@@ -27,28 +27,22 @@ export interface ParticipantAssignment {
   userId: string;
   displayName: string;
   character: string | null;
-  chunks: AssignedChunk[];
+  lines: AssignedLine[];
   dialogueCount: number;
   actionCount: number;
 }
 
 export interface ScoredScene {
-  scene: Scene & { character_stats?: CharacterStat[] };
+  scene: Scene;
   actNumber: number;
   coverageRatio: number;
   recordingCount: number;
   characterCount: number;
-  dialogueChunkCount: number;
-}
-
-export interface CharacterStat {
-  name: string;
-  dialogue_chunks: number;
-  total_chunks: number;
+  dialogueLineCount: number;
 }
 
 export interface CharacterProfile {
   name: string;
-  dialogueChunkCount: number;
-  chunkIds: string[];
+  dialogueLineCount: number;
+  lineIds: string[];
 }

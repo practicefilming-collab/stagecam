@@ -13,6 +13,8 @@
   --tiktok-teal: #25F4EE;
   --tiktok-pink: #FE2C55;
   --curtain-red: #8B0000;
+  --font-geist-sans: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-geist-mono: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
 }
 
 @theme inline {

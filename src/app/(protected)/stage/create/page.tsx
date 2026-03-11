@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { getScriptTotalLines } from '@/lib/line-helpers';
 import type { Script, SelectionMode } from '@/lib/types';
 
 export default function CreateStagePage() {
@@ -85,7 +86,7 @@ export default function CreateStagePage() {
                   <span className="text-muted text-sm ml-2">({script.year})</span>
                 </div>
                 <span className="text-xs text-muted">
-                  {script.total_chunks} chunks
+                  {getScriptTotalLines(script)} lines
                 </span>
               </div>
             </button>

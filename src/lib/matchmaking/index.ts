@@ -1,6 +1,7 @@
-/** Orchestrates matchmaking: scene selection → character assignment → chunk distribution. */
+/** Orchestrates matchmaking: scene selection → character assignment → line distribution. */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Chunk } from '../types';
+import type { Line } from '../types';
+import { getTotalDialogueLines } from '../line-helpers';
 import type {
   MatchmakingContext,
   MatchmakingResult,
@@ -10,7 +11,7 @@ import type {
 import { fetchSceneCoverageMap } from './coverage';
 import { selectScene } from './scene-selector';
 import { assignCharacters } from './character-assigner';
-import { distributeChunks } from './chunk-distributor';
+import { distributeLines } from './line-distributor';
 
 export type { MatchmakingContext, MatchmakingResult, ParticipantAssignment } from './types';
 
@@ -44,9 +45,8 @@ export async function runMatchmaking(
     // Build scored scenes (character_stats is pre-computed in the DB)
     const scoredScenes: ScoredScene[] = scenes.map((s) => {
       const act = s.acts as unknown as { act_number: number };
-      const charStats = (s.character_stats ?? []) as { name: string; dialogue_chunks: number; total_chunks: number }[];
       const recordingCount = coverageMap.get(s.id) ?? 0;
-      const dialogueChunkCount = charStats.reduce((sum, c) => sum + c.dialogue_chunks, 0);
+      const dialogueLineCount = getTotalDialogueLines(s.character_stats);
       const performable = s.rehearsable_chunks ?? s.total_chunks;
 
       return {
@@ -55,7 +55,7 @@ export async function runMatchmaking(
         coverageRatio: performable > 0 ? recordingCount / performable : 1,
         recordingCount,
         characterCount: s.unique_characters.length,
-        dialogueChunkCount,
+        dialogueLineCount,
       };
     });
 
@@ -70,7 +70,7 @@ export async function runMatchmaking(
     throw new Error('No scene selected');
   }
 
-  // ── Fetch scene + chunks ──
+  // ── Fetch scene + lines ──
   const { data: scene } = await supabase
     .from('scenes')
     .select('*, acts(act_number)')
@@ -81,60 +81,60 @@ export async function runMatchmaking(
     throw new Error('Scene not found');
   }
 
-  const { data: chunks } = await supabase
+  const { data: lineRows } = await supabase
     .from('chunks')
     .select('*')
     .eq('scene_id', sceneId)
     .order('chunk_in_scene');
 
-  if (!chunks || chunks.length === 0) {
-    throw new Error('No chunks in scene');
+  if (!lineRows || lineRows.length === 0) {
+    throw new Error('No lines in scene');
   }
 
-  // ── Build character profiles from dialogue chunks ──
-  const dialogueChunks = (chunks as Chunk[]).filter((c) => c.type === 'dialogue' && c.character);
+  // ── Build character profiles from dialogue lines ──
+  const dialogueLines = (lineRows as Line[]).filter((line) => line.type === 'dialogue' && line.character);
   const charMap = new Map<string, { count: number; ids: string[] }>();
 
-  for (const chunk of dialogueChunks) {
-    const name = chunk.character!;
+  for (const line of dialogueLines) {
+    const name = line.character!;
     const entry = charMap.get(name) ?? { count: 0, ids: [] };
     entry.count++;
-    entry.ids.push(chunk.id);
+    entry.ids.push(line.id);
     charMap.set(name, entry);
   }
 
   const characters: CharacterProfile[] = [...charMap.entries()]
     .map(([name, data]) => ({
       name,
-      dialogueChunkCount: data.count,
-      chunkIds: data.ids,
+      dialogueLineCount: data.count,
+      lineIds: data.ids,
     }))
-    .sort((a, b) => b.dialogueChunkCount - a.dialogueChunkCount);
+    .sort((a, b) => b.dialogueLineCount - a.dialogueLineCount);
 
-  // ── Assign characters + distribute chunks ──
+  // ── Assign characters + distribute lines ──
   const characterAssignments = assignCharacters(characters, context.participantIds, context.roleDraft);
-  const assignments = distributeChunks(
-    chunks as Chunk[],
+  const assignments = distributeLines(
+    lineRows as Line[],
     characterAssignments,
     context.participantIds,
     context.participantNames
   );
 
   const act = scene.acts as unknown as { act_number: number } | null;
-  const systemChunkCount = (chunks as Chunk[]).filter((c) => c.is_system).length;
-  const performableCount = chunks.length - systemChunkCount;
+  const systemLineCount = (lineRows as Line[]).filter((line) => line.is_system).length;
+  const performableCount = lineRows.length - systemLineCount;
 
   return {
     sceneId,
     sceneHeading: scene.scene_heading,
     sceneNumber: scene.scene_number,
     actNumber: act?.act_number ?? 1,
-    totalChunks: performableCount,
-    systemChunks: systemChunkCount,
+    totalLines: performableCount,
+    systemLines: systemLineCount,
     assignments,
     characters: characters.map((c) => ({
       name: c.name,
-      dialogueCount: c.dialogueChunkCount,
+      dialogueCount: c.dialogueLineCount,
     })),
   };
 }

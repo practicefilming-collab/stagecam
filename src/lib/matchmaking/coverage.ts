@@ -1,20 +1,20 @@
-/** Coverage calculation: counts recordings against performable chunks per scene. */
+/** Coverage calculation: counts recordings against performable lines per scene. */
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export interface CoverageStats {
-  totalChunks: number;
-  recordedChunks: number;
+  totalLines: number;
+  recordedLines: number;
   percentage: number;
 }
 
 export function computeCoverage(
-  totalChunks: number,
+  totalLines: number,
   recordedCount: number
 ): CoverageStats {
   return {
-    totalChunks,
-    recordedChunks: recordedCount,
-    percentage: totalChunks > 0 ? Math.round((recordedCount / totalChunks) * 100) : 0,
+    totalLines,
+    recordedLines: recordedCount,
+    percentage: totalLines > 0 ? Math.round((recordedCount / totalLines) * 100) : 0,
   };
 }
 
@@ -34,8 +34,8 @@ export async function fetchSceneCoverageMap(
     .in('chunks.scene_id', sceneIds);
 
   (recordings ?? []).forEach((r: Record<string, unknown>) => {
-    const chunks = r.chunks as { scene_id: string };
-    const sid = chunks.scene_id;
+    const line = r.chunks as { scene_id: string };
+    const sid = line.scene_id;
     countMap.set(sid, (countMap.get(sid) ?? 0) + 1);
   });
 

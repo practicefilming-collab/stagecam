@@ -12,14 +12,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { scriptId, chunkId, ext } = await request.json();
+  const { scriptId, lineId, chunkId, ext } = await request.json();
+  const assetId = lineId ?? chunkId;
 
-  if (!scriptId || !chunkId || !ext) {
+  if (!scriptId || !assetId || !ext) {
     return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
   }
 
   const timestamp = Date.now();
-  const key = `${scriptId}/${chunkId}/${user.id}_${timestamp}.${ext}`;
+  const key = `${scriptId}/${assetId}/${user.id}_${timestamp}.${ext}`;
   const contentType = ext === 'mp4' ? 'video/mp4' : 'video/webm';
 
   const command = new PutObjectCommand({
@@ -30,5 +31,5 @@ export async function POST(request: Request) {
 
   const url = await getSignedUrl(r2, command, { expiresIn: 300 });
 
-  return NextResponse.json({ url, key, contentType });
+  return NextResponse.json({ url, key, contentType, lineId: assetId });
 }

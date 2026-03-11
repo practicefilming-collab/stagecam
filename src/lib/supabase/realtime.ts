@@ -25,7 +25,7 @@ export function broadcastRoomStatus(
 export function broadcastRecordingComplete(
   roomCode: string,
   userId: string,
-  chunkId: string
+  lineId: string
 ) {
   const supabase = createClient();
   supabase
@@ -33,6 +33,6 @@ export function broadcastRecordingComplete(
     .send({
       type: 'broadcast',
       event: 'recording_complete',
-      payload: { userId, chunkId },
+      payload: { userId, lineId, chunkId: lineId },
     });
 }

@@ -4,12 +4,12 @@ import { STORAGE_BUCKETS } from '../constants';
 export async function uploadRecording(
   blob: Blob,
   scriptId: string,
-  chunkId: string,
+  lineId: string,
   userId: string
 ): Promise<string | null> {
   const supabase = createClient();
   const timestamp = Date.now();
-  const path = `${scriptId}/${chunkId}/${userId}_${timestamp}.webm`;
+  const path = `${scriptId}/${lineId}/${userId}_${timestamp}.webm`;
 
   const { error } = await supabase.storage
     .from(STORAGE_BUCKETS.RECORDINGS)

@@ -1,16 +1,16 @@
-import type { Recording, Chunk } from '../types';
+import type { Recording, Line } from '../types';
 
 interface MatchedSegment {
-  chunk: Chunk;
+  line: Line;
   recording: Recording | null;
   performer: string | null;
 }
 
-export function matchRecordingsToChunks(
-  chunks: Chunk[],
+export function matchRecordingsToLines(
+  lines: Line[],
   recordings: Recording[]
 ): MatchedSegment[] {
-  // Create a map of chunk_id -> latest recording
+  // Create a map of recorded line id -> latest recording.
   const recordingMap = new Map<string, Recording>();
   for (const rec of recordings) {
     const existing = recordingMap.get(rec.chunk_id);
@@ -19,9 +19,9 @@ export function matchRecordingsToChunks(
     }
   }
 
-  return chunks.map((chunk) => ({
-    chunk,
-    recording: recordingMap.get(chunk.id) ?? null,
-    performer: recordingMap.get(chunk.id)?.user_id ?? null,
+  return lines.map((line) => ({
+    line,
+    recording: recordingMap.get(line.id) ?? null,
+    performer: recordingMap.get(line.id)?.user_id ?? null,
   }));
 }

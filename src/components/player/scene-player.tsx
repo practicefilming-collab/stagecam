@@ -1,12 +1,12 @@
-/** Sequential scene playback: recordings → TTS fallback → text display. System chunks badged as Narrator. */
+/** Sequential scene playback: recordings → TTS fallback → text display. System lines are badged as Narrator. */
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface PlaybackItem {
-  chunkId: string;
-  chunkIndex: number;
-  chunkInScene: number;
+  lineId: string;
+  lineIndex: number;
+  lineInScene: number;
   type: string;
   character: string | null;
   isSystem: boolean;
@@ -43,7 +43,7 @@ interface ExportJobStatusResponse {
 export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
   const [scene, setScene] = useState<SceneInfo | null>(null);
   const [items, setItems] = useState<PlaybackItem[]>([]);
-  const [stats, setStats] = useState({ totalChunks: 0, performableChunks: 0, recordedChunks: 0, ttsChunks: 0, systemChunks: 0 });
+  const [stats, setStats] = useState({ totalLines: 0, rehearsableLines: 0, recordedLines: 0, ttsLines: 0, systemLines: 0 });
   const [currentIdx, setCurrentIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -229,7 +229,7 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
           </div>
           <div className="text-right">
             <p className="text-xs text-muted">
-              {stats.recordedChunks} recorded / {stats.performableChunks} rehearsable
+              {stats.recordedLines} recorded / {stats.rehearsableLines} rehearsable
             </p>
           </div>
         </div>
@@ -373,11 +373,11 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
         </div>
       )}
 
-      {/* Chunk timeline */}
+      {/* Line timeline */}
       <div className="px-4 py-2 border-t border-border flex gap-0.5 overflow-x-auto">
         {items.map((item, i) => (
           <button
-            key={item.chunkId}
+            key={item.lineId}
             onClick={() => handleSeek(i)}
             className={`flex-shrink-0 h-2 rounded-full transition-all ${
               i === currentIdx

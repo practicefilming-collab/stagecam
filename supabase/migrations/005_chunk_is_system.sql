@@ -1,2 +1,2 @@
 ALTER TABLE chunks ADD COLUMN is_system BOOLEAN NOT NULL DEFAULT false;
-ALTER TABLE scenes ADD COLUMN performable_chunks INT DEFAULT 0;
+ALTER TABLE scenes ADD COLUMN rehearsable_chunks INT DEFAULT 0;

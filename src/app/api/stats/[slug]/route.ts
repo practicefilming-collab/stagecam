@@ -1,4 +1,4 @@
-/** Script dashboard API: chunk breakdown, coverage, characters, rehearsal balance. */
+/** Script dashboard API: line breakdown, coverage, characters, rehearsal balance. */
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { isAdmin } from '@/lib/admin';
@@ -47,7 +47,7 @@ export async function GET(
     scene_number: number;
     scene_heading: string | null;
     total_chunks: number;
-    performable_chunks: number;
+    rehearsable_chunks: number;
     unique_characters: string[];
     actId: string;
     actNumber: number;
@@ -59,7 +59,7 @@ export async function GET(
       scene_number: number;
       scene_heading: string | null;
       total_chunks: number;
-      performable_chunks: number;
+      rehearsable_chunks: number;
       unique_characters: string[];
     }>;
     for (const scene of scenes) {
@@ -73,16 +73,16 @@ export async function GET(
 
   const allSceneIds = allScenes.map((s) => s.id);
 
-  // 3-5. Parallel queries: chunks, recordings, rooms
-  const [chunksResult, , roomsResult] = await Promise.all([
-    // 3. All chunks for aggregation
+  // 3-5. Parallel queries: lines, recordings, rooms
+  const [lineRowsResult, , roomsResult] = await Promise.all([
+    // 3. All lines for aggregation
     supabase
       .from('chunks')
       .select('id, type, character, is_system, scene_id')
       .in('scene_id', allSceneIds),
 
-    // 4. Recordings for coverage (by performable chunk_ids)
-    // Placeholder — will query after chunks are available
+    // 4. Recordings for coverage (by rehearsable line ids)
+    // Placeholder — will query after line rows are available
     Promise.resolve({ data: null }),
 
     // 5. Rooms for rehearsal counts
@@ -93,61 +93,61 @@ export async function GET(
       .not('selected_scene_id', 'is', null),
   ]);
 
-  const chunks = chunksResult.data ?? [];
+  const lineRows = lineRowsResult.data ?? [];
   const rooms = roomsResult.data ?? [];
 
-  // Query recordings using direct chunk_id lookup (PostgREST .in on joined columns is unreliable)
-  const performableChunkIds = chunks.filter((c) => !c.is_system).map((c) => c.id);
+  // Query recordings using direct chunk_id lookup (PostgREST .in on joined columns is unreliable).
+  const performableLineIds = lineRows.filter((line) => !line.is_system).map((line) => line.id);
   let recordings: { chunk_id: string }[] = [];
-  if (performableChunkIds.length > 0) {
+  if (performableLineIds.length > 0) {
     const { data: recs } = await supabase
       .from('recordings')
       .select('chunk_id')
-      .in('chunk_id', performableChunkIds);
+      .in('chunk_id', performableLineIds);
     recordings = recs ?? [];
   }
 
-  // Build chunk-to-scene map for per-scene aggregation
-  const chunkToScene = new Map<string, string>();
-  for (const chunk of chunks) {
-    chunkToScene.set(chunk.id, chunk.scene_id);
+  // Build line-to-scene map for per-scene aggregation.
+  const lineToScene = new Map<string, string>();
+  for (const line of lineRows) {
+    lineToScene.set(line.id, line.scene_id);
   }
 
-  // === Aggregate chunk breakdown ===
-  const chunkBreakdown = { dialogue: 0, action: 0, scene_heading: 0, transition: 0 };
+  // === Aggregate line breakdown ===
+  const lineBreakdown = { dialogue: 0, action: 0, scene_heading: 0, transition: 0 };
   let systemCount = 0;
   const characterMap = new Map<string, number>();
 
-  for (const chunk of chunks) {
-    const t = chunk.type as keyof typeof chunkBreakdown;
-    if (t in chunkBreakdown) chunkBreakdown[t]++;
-    if (chunk.is_system) systemCount++;
-    if (chunk.type === 'dialogue' && chunk.character) {
-      characterMap.set(chunk.character, (characterMap.get(chunk.character) ?? 0) + 1);
+  for (const line of lineRows) {
+    const t = line.type as keyof typeof lineBreakdown;
+    if (t in lineBreakdown) lineBreakdown[t]++;
+    if (line.is_system) systemCount++;
+    if (line.type === 'dialogue' && line.character) {
+      characterMap.set(line.character, (characterMap.get(line.character) ?? 0) + 1);
     }
   }
 
-  const performableCount = chunks.length - systemCount;
+  const performableCount = lineRows.length - systemCount;
 
   const characters = [...characterMap.entries()]
-    .map(([name, dialogueChunks]) => ({ name, dialogueChunks }))
-    .sort((a, b) => b.dialogueChunks - a.dialogueChunks);
+    .map(([name, dialogueLines]) => ({ name, dialogueLines }))
+    .sort((a, b) => b.dialogueLines - a.dialogueLines);
 
-  // === Aggregate recording coverage per scene (distinct chunk_ids) ===
+  // === Aggregate recording coverage per scene (distinct line ids) ===
   const recordedPerScene = new Map<string, Set<string>>();
   for (const rec of recordings) {
-    const sceneId = chunkToScene.get(rec.chunk_id);
+    const sceneId = lineToScene.get(rec.chunk_id);
     if (!sceneId) continue;
     if (!recordedPerScene.has(sceneId)) recordedPerScene.set(sceneId, new Set());
     recordedPerScene.get(sceneId)!.add(rec.chunk_id);
   }
 
-  // Total distinct recorded chunks across all scenes
-  const allRecordedChunkIds = new Set<string>();
+  // Total distinct recorded lines across all scenes
+  const allRecordedLineIds = new Set<string>();
   for (const set of recordedPerScene.values()) {
-    for (const id of set) allRecordedChunkIds.add(id);
+    for (const id of set) allRecordedLineIds.add(id);
   }
-  const totalRecorded = allRecordedChunkIds.size;
+  const totalRecorded = allRecordedLineIds.size;
 
   // === Aggregate rehearsal counts per scene ===
   const rehearsalPerScene = new Map<string, number>();
@@ -167,7 +167,7 @@ export async function GET(
 
     const scenesResponse = actScenes.map((scene) => {
       const recorded = recordedPerScene.get(scene.id)?.size ?? 0;
-      const perf = scene.performable_chunks ?? scene.total_chunks;
+      const perf = scene.rehearsable_chunks ?? scene.total_chunks;
       actPerformable += perf;
       actRecorded += recorded;
 
@@ -175,10 +175,10 @@ export async function GET(
         id: scene.id,
         sceneNumber: scene.scene_number,
         sceneHeading: scene.scene_heading,
-        totalChunks: scene.total_chunks,
-        performableChunks: perf,
+        totalLines: scene.total_chunks,
+        rehearsableLines: perf,
         uniqueCharacters: scene.unique_characters ?? [],
-        recorded,
+        recordedLines: recorded,
         completionPct: perf > 0 ? Math.round((recorded / perf) * 100) : 0,
         rehearsalCount: rehearsalPerScene.get(scene.id) ?? 0,
       };
@@ -187,10 +187,10 @@ export async function GET(
     return {
       id: act.id,
       actNumber: act.act_number,
-      totalChunks: act.total_chunks,
+      totalLines: act.total_chunks,
       completion: {
-        totalPerformable: actPerformable,
-        recorded: actRecorded,
+        totalRehearsableLines: actPerformable,
+        recordedLines: actRecorded,
         percentage: actPerformable > 0 ? Math.round((actRecorded / actPerformable) * 100) : 0,
       },
       scenes: scenesResponse,
@@ -200,7 +200,7 @@ export async function GET(
   // === Rehearsal balance: hot/cold spots ===
   const totalRehearsals = rooms.length;
   const sceneRehearsalStats = allScenes
-    .filter((s) => (s.performable_chunks ?? s.total_chunks) > 0)
+    .filter((s) => (s.rehearsable_chunks ?? s.total_chunks) > 0)
     .map((s) => ({
       sceneId: s.id,
       sceneNumber: s.scene_number,
@@ -226,17 +226,17 @@ export async function GET(
       slug: script.slug,
       totalActs: script.total_acts,
       totalScenes: script.total_scenes,
-      totalChunks: script.total_chunks,
+      totalLines: script.total_chunks,
     },
-    chunkBreakdown: {
-      ...chunkBreakdown,
-      system: systemCount,
-      performable: performableCount,
+    lineBreakdown: {
+      ...lineBreakdown,
+      systemLines: systemCount,
+      rehearsableLines: performableCount,
     },
     characters,
     completion: {
-      totalPerformable: performableCount,
-      recorded: totalRecorded,
+      totalRehearsableLines: performableCount,
+      recordedLines: totalRecorded,
       percentage: performableCount > 0 ? Math.round((totalRecorded / performableCount) * 100) : 0,
     },
     acts: actsResponse,

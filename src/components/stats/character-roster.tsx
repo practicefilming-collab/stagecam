@@ -3,20 +3,20 @@
 import { useState } from 'react';
 
 interface CharacterRosterProps {
-  characters: { name: string; dialogueChunks: number }[];
-  totalDialogue: number;
+  characters: { name: string; dialogueLines: number }[];
+  totalDialogueLines: number;
 }
 
 const INITIAL_SHOW = 10;
 
-export default function CharacterRoster({ characters, totalDialogue }: CharacterRosterProps) {
-  void totalDialogue;
+export default function CharacterRoster({ characters, totalDialogueLines }: CharacterRosterProps) {
+  void totalDialogueLines;
   const [expanded, setExpanded] = useState(false);
 
   if (characters.length === 0) return null;
 
   const visible = expanded ? characters : characters.slice(0, INITIAL_SHOW);
-  const maxCount = characters[0]?.dialogueChunks ?? 1;
+  const maxCount = characters[0]?.dialogueLines ?? 1;
 
   return (
     <div>
@@ -26,11 +26,11 @@ export default function CharacterRoster({ characters, totalDialogue }: Character
             {/* Proportional bar behind text */}
             <div
               className="absolute inset-y-0 left-0 bg-gold/10 rounded"
-              style={{ width: `${(char.dialogueChunks / maxCount) * 100}%` }}
+              style={{ width: `${(char.dialogueLines / maxCount) * 100}%` }}
             />
             <span className="relative text-sm font-medium truncate mr-2">{char.name}</span>
             <span className="relative text-xs text-muted font-mono flex-shrink-0">
-              {char.dialogueChunks}
+              {char.dialogueLines}
             </span>
           </div>
         ))}

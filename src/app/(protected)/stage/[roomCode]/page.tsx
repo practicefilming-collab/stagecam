@@ -4,20 +4,28 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { usePresence } from '@/hooks/use-presence';
+import {
+  getCharacterDialogueLines,
+  getMaxCharacterDialogueLines,
+  getSceneRehearsableLines,
+  getScriptTotalLines,
+  summarizeCharacterDialogueLines,
+} from '@/lib/line-helpers';
 import type { Room, Script, Act, Scene, RoomPresence } from '@/lib/types';
 
 interface CallSheetEntry {
   userId: string;
   displayName: string;
-  totalChunks: number;
+  totalLines: number;
   character: string | null;
-  dialogueCount: number;
-  actionCount: number;
+  dialogueLines: number;
+  actionLines: number;
+  lines: { line_id: string; role: string; character?: string }[];
 }
 
 interface SceneCharacter {
   name: string;
-  dialogueCount: number;
+  dialogueLines: number;
 }
 
 interface PreviewData {
@@ -26,8 +34,8 @@ interface PreviewData {
   sceneHeading: string;
   sceneNumber: number;
   actNumber: number;
-  totalChunks: number;
-  systemChunks: number;
+  totalLines: number;
+  systemLines: number;
   callSheet: CallSheetEntry[];
   characters: SceneCharacter[];
 }
@@ -60,8 +68,12 @@ export default function BackstagePage() {
   const [acts, setActs] = useState<Act[]>([]);
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [mode, setMode] = useState<'auto' | 'pick'>('auto');
+  const [pickMode, setPickMode] = useState<'length' | 'character' | 'group-size' | 'act-scene'>('length');
   const [selectedActId, setSelectedActId] = useState<string | null>(null);
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
+  const [selectedCharacter, setSelectedCharacter] = useState<string | null>(null);
+  const [selectedGroupSize, setSelectedGroupSize] = useState<number | null>(null);
+  const [selectedLengthTier, setSelectedLengthTier] = useState<'spark' | 'beat' | 'moment' | null>(null);
 
   // Call sheet
   const [preview, setPreview] = useState<PreviewData | null>(null);
@@ -91,7 +103,7 @@ export default function BackstagePage() {
 
   // Derived: narration line count
   const narrationCount = preview
-    ? preview.totalChunks - preview.characters.reduce((s, c) => s + c.dialogueCount, 0)
+    ? preview.totalLines - preview.characters.reduce((s, c) => s + c.dialogueLines, 0)
     : 0;
 
   const loadScriptDetails = useCallback(async (scriptId: string) => {
@@ -465,6 +477,62 @@ export default function BackstagePage() {
     ? scenes.filter((s) => s.act_id === selectedActId)
     : scenes;
 
+  // All unique characters across loaded scenes
+  const allCharacters = Array.from(
+    new Set(scenes.flatMap((s) => (s.character_stats ?? []).map((c) => c.name)))
+  ).sort();
+
+  // Filtered scenes for each pick sub-mode
+  const getPickScenes = (): Scene[] => {
+    if (pickMode === 'act-scene') return filteredScenes;
+
+    if (pickMode === 'character' && selectedCharacter) {
+      return scenes
+        .filter((s) => s.unique_characters.includes(selectedCharacter))
+        .sort((a, b) => {
+          const aLines = getCharacterDialogueLines(a.character_stats, selectedCharacter);
+          const bLines = getCharacterDialogueLines(b.character_stats, selectedCharacter);
+          return bLines - aLines;
+        });
+    }
+
+    if (pickMode === 'group-size' && selectedGroupSize !== null) {
+      const findEntry = (rollCalls: import('@/lib/types').RollCallEntry[] | undefined) => {
+        if (!rollCalls) return undefined;
+        if (selectedGroupSize < 7) return rollCalls.find((e) => e.participants === selectedGroupSize);
+        // 7+ matches any roll call with participants >= 7
+        return rollCalls.filter((e) => e.participants >= 7).sort((a, b) => a.narrators - b.narrators)[0];
+      };
+      return scenes
+        .filter((s) => {
+          const rollCalls = s.roll_calls as import('@/lib/types').RollCallEntry[] | undefined;
+          return !!findEntry(rollCalls);
+        })
+        .sort((a, b) => {
+          const aEntry = findEntry(a.roll_calls as import('@/lib/types').RollCallEntry[] | undefined);
+          const bEntry = findEntry(b.roll_calls as import('@/lib/types').RollCallEntry[] | undefined);
+          return (aEntry?.narrators ?? 99) - (bEntry?.narrators ?? 99);
+        });
+    }
+
+    if (pickMode === 'length' && selectedLengthTier) {
+      const thresholds = {
+        spark: { maxDialoguePerChar: 2, maxRehearsable: 6 },
+        beat: { maxDialoguePerChar: 5, maxRehearsable: 15 },
+        moment: { maxDialoguePerChar: 12, maxRehearsable: 30 },
+      };
+      const t = thresholds[selectedLengthTier];
+      return scenes.filter((s) => {
+        const maxDialogue = getMaxCharacterDialogueLines(s.character_stats);
+        return maxDialogue <= t.maxDialoguePerChar && getSceneRehearsableLines(s) <= t.maxRehearsable;
+      });
+    }
+
+    return [];
+  };
+
+  const pickScenes = mode === 'pick' ? getPickScenes() : [];
+
   // Separate characters into my roles, claimed by others, and available
   const availableRoles = preview?.characters.filter((c) => !roleClaims.has(c.name)) ?? [];
   const othersClaims = preview?.characters.filter(
@@ -541,7 +609,7 @@ export default function BackstagePage() {
                         <span className="font-medium">{script.title}</span>
                         <span className="text-muted text-sm ml-2">({script.year})</span>
                       </div>
-                      <span className="text-xs text-muted">{script.total_chunks} chunks</span>
+                      <span className="text-xs text-muted">{getScriptTotalLines(script)} lines</span>
                     </div>
                   </button>
                 ))}
@@ -588,69 +656,209 @@ export default function BackstagePage() {
                 </button>
               </div>
 
-              {/* Pick mode: act/scene selector */}
+              {/* Pick mode: sub-mode pills + content */}
               {mode === 'pick' && (
                 <>
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    <button
-                      onClick={() => { setSelectedActId(null); setSelectedSceneId(null); }}
-                      className={`px-3 py-1 rounded-lg text-xs border transition-colors ${
-                        !selectedActId ? 'border-gold text-gold bg-gold/10' : 'border-border text-muted hover:text-foreground'
-                      }`}
-                    >
-                      All Acts
-                    </button>
-                    {acts.map((act) => (
+                  {/* Sub-mode pills */}
+                  <div className="flex gap-2 mb-4 overflow-x-auto">
+                    {([
+                      ['length', 'Length'],
+                      ['character', 'Character'],
+                      ['group-size', 'Group Size'],
+                      ['act-scene', 'Act/Scene'],
+                    ] as const).map(([key, label]) => (
                       <button
-                        key={act.id}
-                        onClick={() => { setSelectedActId(act.id); setSelectedSceneId(null); }}
-                        className={`px-3 py-1 rounded-lg text-xs border transition-colors ${
-                          selectedActId === act.id ? 'border-gold text-gold bg-gold/10' : 'border-border text-muted hover:text-foreground'
+                        key={key}
+                        onClick={() => { setPickMode(key); setSelectedSceneId(null); }}
+                        className={`px-3 py-1.5 rounded-lg text-xs border whitespace-nowrap transition-colors ${
+                          pickMode === key
+                            ? 'border-gold text-gold bg-gold/10'
+                            : 'border-border text-muted hover:text-foreground'
                         }`}
                       >
-                        Act {act.act_number}
+                        {label}
                       </button>
                     ))}
                   </div>
 
-                  <div className="max-h-48 overflow-y-auto space-y-1 mb-4">
-                    {filteredScenes.map((scene) => (
+                  {/* By Act/Scene */}
+                  {pickMode === 'act-scene' && (
+                    <div className="flex flex-wrap gap-2 mb-3">
                       <button
-                        key={scene.id}
-                        onClick={() => {
-                          setSelectedSceneId(scene.id);
-                          setSelectedActId(scene.act_id);
-                        }}
-                        className={`w-full text-left p-3 rounded-lg text-sm transition-colors ${
-                          selectedSceneId === scene.id
-                            ? 'bg-gold/10 border border-gold'
-                            : 'bg-background/50 border border-transparent hover:border-border'
+                        onClick={() => { setSelectedActId(null); setSelectedSceneId(null); }}
+                        className={`px-3 py-1 rounded-lg text-xs border transition-colors ${
+                          !selectedActId ? 'border-gold text-gold bg-gold/10' : 'border-border text-muted hover:text-foreground'
                         }`}
                       >
-                        <span className="text-muted text-xs mr-2">Scene {scene.scene_number}</span>
-                        <span className="text-foreground">{scene.scene_heading || 'Untitled'}</span>
-                        <span className="text-muted text-xs ml-2">({scene.total_chunks} chunks)</span>
-                        {((scene.character_stats as { name: string }[] | undefined) ?? scene.unique_characters).length > 0 && (
-                          <div className="mt-1 text-xs text-gold/70">
-                            {(scene.character_stats as { name: string }[] | undefined)
-                              ? (scene.character_stats as { name: string }[]).map(c => c.name).join(', ')
-                              : scene.unique_characters.join(', ')}
-                          </div>
-                        )}
+                        All Acts
                       </button>
-                    ))}
+                      {acts.map((act) => (
+                        <button
+                          key={act.id}
+                          onClick={() => { setSelectedActId(act.id); setSelectedSceneId(null); }}
+                          className={`px-3 py-1 rounded-lg text-xs border transition-colors ${
+                            selectedActId === act.id ? 'border-gold text-gold bg-gold/10' : 'border-border text-muted hover:text-foreground'
+                          }`}
+                        >
+                          Act {act.act_number}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* By Character */}
+                  {pickMode === 'character' && (
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {allCharacters.map((name) => (
+                        <button
+                          key={name}
+                          onClick={() => { setSelectedCharacter(name); setSelectedSceneId(null); }}
+                          className={`px-3 py-1 rounded-lg text-xs border transition-colors ${
+                            selectedCharacter === name
+                              ? 'border-gold text-gold bg-gold/10'
+                              : 'border-border text-muted hover:text-foreground'
+                          }`}
+                        >
+                          {name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* By Group Size */}
+                  {pickMode === 'group-size' && (
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {[2, 3, 4, 5, 6, 7].map((n) => (
+                        <button
+                          key={n}
+                          onClick={() => { setSelectedGroupSize(n); setSelectedSceneId(null); }}
+                          className={`px-3 py-1 rounded-lg text-xs border transition-colors ${
+                            selectedGroupSize === n
+                              ? 'border-gold text-gold bg-gold/10'
+                              : 'border-border text-muted hover:text-foreground'
+                          }`}
+                        >
+                          {n === 7 ? '7+' : n}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* By Length */}
+                  {pickMode === 'length' && (
+                    <div className="grid grid-cols-3 gap-2 mb-3">
+                      {([
+                        ['spark', 'Spark', '1–2 lines, ~30s'],
+                        ['beat', 'Beat', 'A few lines, ~1m'],
+                        ['moment', 'Moment', 'Short scene, ~2–3m'],
+                      ] as const).map(([key, label, subtitle]) => (
+                        <button
+                          key={key}
+                          onClick={() => { setSelectedLengthTier(key); setSelectedSceneId(null); }}
+                          className={`p-2 rounded-lg border text-center transition-colors ${
+                            selectedLengthTier === key
+                              ? 'border-gold text-gold bg-gold/10'
+                              : 'border-border text-muted hover:text-foreground'
+                          }`}
+                        >
+                          <div className="text-sm font-medium">{label}</div>
+                          <div className="text-xs text-muted mt-0.5">{subtitle}</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Scene list */}
+                  <div className="max-h-72 overflow-y-auto space-y-1 mb-4">
+                    {pickScenes.length === 0 && (
+                      <p className="text-muted text-sm text-center py-4">
+                        {pickMode === 'character' && !selectedCharacter ? 'Select a character above' :
+                         pickMode === 'group-size' && selectedGroupSize === null ? 'Select a group size above' :
+                         pickMode === 'length' && !selectedLengthTier ? 'Select a length above' :
+                         'No scenes match'}
+                      </p>
+                    )}
+                    {pickScenes.map((scene) => {
+                      const charStats = scene.character_stats ?? [];
+                      const charCount = scene.unique_characters.length;
+                      return (
+                        <button
+                          key={scene.id}
+                          onClick={() => {
+                            setSelectedSceneId(scene.id);
+                            setSelectedActId(scene.act_id);
+                          }}
+                          className={`w-full text-left p-3 rounded-lg text-sm transition-colors ${
+                            selectedSceneId === scene.id
+                              ? 'bg-gold/10 border border-gold'
+                              : 'bg-background/50 border border-transparent hover:border-border'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-muted text-xs mr-2">Scene {scene.scene_number}</span>
+                              <span className="text-foreground">{scene.scene_heading || 'Untitled'}</span>
+                            </div>
+                            <span className="text-muted text-xs ml-2">
+                              {getSceneRehearsableLines(scene)} {getSceneRehearsableLines(scene) === 1 ? 'line' : 'lines'}
+                            </span>
+                          </div>
+
+                          {/* Context row varies by sub-mode */}
+                          <div className="mt-1 text-xs text-gold/70">
+                            {pickMode === 'character' && selectedCharacter && (
+                              <>
+                                {getCharacterDialogueLines(charStats, selectedCharacter)} lines for {selectedCharacter}
+                                <span className="text-muted ml-2">· {charCount} character{charCount !== 1 ? 's' : ''}</span>
+                              </>
+                            )}
+                            {pickMode === 'group-size' && selectedGroupSize !== null && (() => {
+                              const rollCalls = scene.roll_calls as import('@/lib/types').RollCallEntry[] | undefined;
+                              const entry = selectedGroupSize < 7
+                                ? rollCalls?.find((e) => e.participants === selectedGroupSize)
+                                : rollCalls?.filter((e) => e.participants >= 7).sort((a, b) => a.narrators - b.narrators)[0];
+                              return entry ? (
+                                <>
+                                  {entry.characters} speaking · {entry.narrators} narrator{entry.narrators !== 1 ? 's' : ''}
+                                </>
+                              ) : null;
+                            })()}
+                            {pickMode === 'length' && (
+                              <>
+                                {charCount} character{charCount !== 1 ? 's' : ''}
+                                {charStats.length > 0 && (
+                                  <span className="text-muted ml-2">
+                                    · {summarizeCharacterDialogueLines(charStats)}
+                                  </span>
+                                )}
+                              </>
+                            )}
+                            {pickMode === 'act-scene' && (
+                              charStats.length > 0
+                                ? charStats.map((c) => c.name).join(', ')
+                                : scene.unique_characters.join(', ')
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 </>
               )}
 
               {/* Confirm button */}
-              <button
-                onClick={confirmScene}
-                disabled={previewLoading || (mode === 'pick' && !selectedSceneId && !selectedActId)}
-                className="w-full py-3 bg-gold text-black rounded-xl font-semibold hover:bg-gold-dim transition-colors disabled:opacity-50"
-              >
-                {previewLoading ? 'Generating Call Sheet...' : mode === 'auto' ? 'Everybody In' : 'Confirm Scene'}
-              </button>
+              <div className="sticky bottom-0 bg-surface pt-2 pb-1">
+                <button
+                  onClick={confirmScene}
+                  disabled={previewLoading || (mode === 'pick' && !selectedSceneId)}
+                  className="w-full py-3 bg-gold text-black rounded-xl font-semibold hover:bg-gold-dim transition-colors disabled:opacity-50"
+                >
+                  {previewLoading ? 'Generating Call Sheet...' : mode === 'auto' ? 'Everybody In' : 'Confirm Scene'}
+                </button>
+                {mode === 'pick' && (
+                  <p className="text-xs text-muted text-center mt-1.5">Generates call sheet and assigns roles</p>
+                )}
+              </div>
             </div>
           )}
         </>
@@ -699,7 +907,7 @@ export default function BackstagePage() {
                 Act {preview.actNumber} &middot; Scene {preview.sceneNumber}
               </p>
               <p className="text-sm text-muted mt-1">{preview.sceneHeading}</p>
-              <p className="text-xs text-muted mt-1">{preview.totalChunks} rehearsable chunks</p>
+              <p className="text-xs text-muted mt-1">{preview.totalLines} rehearsable lines</p>
             </div>
 
             {/* Your Roles */}
@@ -711,7 +919,7 @@ export default function BackstagePage() {
                     <div key={c.name} className="flex items-center justify-between p-3 rounded-xl border border-gold/30 bg-gold/5">
                       <div>
                         <span className="text-sm font-medium text-gold">{c.name}</span>
-                        <span className="text-xs text-muted ml-2">{c.dialogueCount} lines</span>
+                        <span className="text-xs text-muted ml-2">{c.dialogueLines} lines</span>
                       </div>
                       {isReady ? (
                         <span className="text-xs text-green-400">Ready</span>
@@ -758,7 +966,7 @@ export default function BackstagePage() {
                       <div key={c.name} className="flex items-center justify-between p-3 rounded-xl border border-border bg-background/50">
                         <div>
                           <span className="text-sm font-medium">{c.name}</span>
-                          <span className="text-xs text-muted ml-2">{c.dialogueCount} lines</span>
+                          <span className="text-xs text-muted ml-2">{c.dialogueLines} lines</span>
                         </div>
                         <span className="text-xs text-muted">{claim.displayName}</span>
                       </div>
@@ -781,7 +989,7 @@ export default function BackstagePage() {
                     >
                       <div>
                         <span className="text-sm font-medium">{c.name}</span>
-                        <span className="text-xs text-muted ml-2">{c.dialogueCount} lines</span>
+                        <span className="text-xs text-muted ml-2">{c.dialogueLines} lines</span>
                       </div>
                       <span className="text-xs text-gold">Claim</span>
                     </button>

@@ -16,7 +16,7 @@ interface CharacterCard {
   scriptSlug: string;
   acts: ActProgress[];
   totalRecorded: number;
-  totalChunks: number;
+  totalLines: number;
   completionPct: number;
 }
 
@@ -51,7 +51,7 @@ export default function RoleCall({ characters, grouped }: { characters: Characte
                     {char.scriptTitle}{char.scriptYear ? ` (${char.scriptYear})` : ''}
                   </p>
                 )}
-                <p className="text-xs text-muted/60">{char.totalChunks} line{char.totalChunks !== 1 ? 's' : ''}</p>
+                <p className="text-xs text-muted/60">{char.totalLines} line{char.totalLines !== 1 ? 's' : ''}</p>
               </div>
               <span className={`text-sm font-mono ${isComplete ? 'text-gold' : 'text-muted'}`}>
                 {char.completionPct === 0 && char.totalRecorded > 0 ? '< 1%' : `${char.completionPct}%`}

@@ -7,12 +7,13 @@ export const DARK_BORDER = '#2a2a2a';
 /** Current terms-of-service version users must accept */
 export const TERMS_VERSION = '1.0';
 
-/** Maximum recording length per chunk */
+/** Maximum recording length per line */
 export const MAX_RECORDING_DURATION_MS = 120_000; // 2 minutes
 /** Maximum users allowed in a single room */
 export const MAX_PARTICIPANTS = 30;
-/** Soft cap on non-dialogue (action/filler) chunks assigned per person in a session. Does not limit dialogue. */
-export const MAX_CHUNKS_PER_PERSON = 12;
+/** Soft cap on non-dialogue (action/filler) lines assigned per person in a session. Does not limit dialogue. */
+export const MAX_LINES_PER_PERSON = 12;
+export const MAX_CHUNKS_PER_PERSON = MAX_LINES_PER_PERSON;
 /** Length of the random alphanumeric room invite code */
 export const ROOM_CODE_LENGTH = 6;
 

@@ -9,36 +9,38 @@ performances, and assemble them into composite scene playbacks.
 - Next.js 14 App Router + TypeScript + Tailwind CSS
 - Supabase (Postgres, Auth, Storage, Realtime)
 - Cloudflare R2 for recording storage
-- Dark theatrical theme (gold #d4af37, dark bg #0a0a0a)
+- Dark theatrical theme (gold `#d4af37`, dark bg `#0a0a0a`)
 
 ## Data Pipeline
 
-Scripts are chunked via Python pipeline (`top250_movies/`) into markdown
+Scripts are chunked via the external Python pipeline (`top250_movies/`) into markdown
 with YAML frontmatter, then seeded into Supabase via `supabase/seed/seed.ts`.
+The app refers to the resulting performable units as lines, while the source
+pipeline and database remain chunk-shaped for compatibility.
 
-### Chunk Classification
+### Line Classification
 
-Each chunk is typed (dialogue, action, scene_heading, transition) and
+Each line is typed (`dialogue`, `action`, `scene_heading`, `transition`) and
 classified as either **rehearsable** (users record these) or **system**
-(always TTS narration — camera directions, SFX cues, short stage
-directions <=15 chars). Coverage and completion are measured against
-rehearsable chunks only.
+(always TTS narration, camera directions, SFX cues, short stage
+directions `<=15` chars). Coverage and completion are measured against
+rehearsable lines only.
 
 ## Key Modules
 
-- `src/lib/matchmaking/` — Scene selection, character assignment, chunk distribution
-- `src/lib/matchmaking/coverage.ts` — Recording coverage calculations
-- `src/components/player/` — Scene playback (recordings + TTS fallback)
-- `src/components/stats/` — Script dashboard visualizations
-- `src/app/api/` — API routes (rooms, recordings, stats, panels, scripts)
-- `supabase/seed/` — Database seeding from pipeline data
-- `supabase/migrations/` — Schema migrations
+- `src/lib/matchmaking/` - Scene selection, character assignment, line distribution
+- `src/lib/matchmaking/coverage.ts` - Recording coverage calculations
+- `src/components/player/` - Scene playback (recordings + TTS fallback)
+- `src/components/stats/` - Script dashboard visualizations
+- `src/app/api/` - API routes (rooms, recordings, stats, panels, scripts)
+- `supabase/seed/` - Database seeding from pipeline data
+- `supabase/migrations/` - Schema migrations
 
 ## Room Flow
 
 1. Creator makes a room, selects a script, picks a scene (or auto-select)
-2. Matchmaking assigns characters by dialogue weight, distributes action chunks
-3. Participants record their assigned chunks
+2. Matchmaking assigns characters by dialogue weight, distributes action lines
+3. Participants record their assigned lines
 4. Scene player assembles recordings + TTS into sequential playback
 5. Users can export a merged scene MP4 on demand from the scene player
 
@@ -60,7 +62,7 @@ npm install
 
 Create a `.env.local` with:
 
-```
+```bash
 NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...

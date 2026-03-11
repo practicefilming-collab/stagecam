@@ -178,7 +178,7 @@ async function createTtsTextCard(cardPath: string, item: PlaybackItem): Promise<
 
 async function renderTtsSegment(outputPath: string, item: PlaybackItem): Promise<void> {
   if (!item.ttsUrl) {
-    throw new Error(`Chunk ${item.chunkId} has no recording and no TTS audio`);
+    throw new Error(`Line ${item.lineId} has no recording and no TTS audio`);
   }
 
   const cardPath = `${outputPath}.png`;

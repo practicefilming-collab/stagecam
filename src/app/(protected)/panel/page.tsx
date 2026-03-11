@@ -6,11 +6,12 @@ import Link from 'next/link';
 interface PanelScene {
   scene: {
     id: string;
-    scene_heading: string;
-    total_chunks: number;
-    acts: {
-      act_number: number;
-      scripts: { title: string; year: number };
+    sceneHeading: string | null;
+    totalLines: number;
+    actNumber: number;
+    script: {
+      title: string;
+      year: number | null;
     };
   };
   participantCount: number;
@@ -45,7 +46,7 @@ export default function PanelPage() {
       <div className="max-w-2xl mx-auto px-4 py-16 text-center">
         <h1 className="text-2xl font-bold text-gold mb-4">Join Panel</h1>
         <p className="text-muted mb-8">
-          Complete at least one chunk recording to unlock the panel view.
+          Complete at least one line recording to unlock the panel view.
           Record a scene to see your performance alongside others.
         </p>
         <Link
@@ -71,13 +72,13 @@ export default function PanelPage() {
           >
             <div className="flex items-center justify-between mb-2">
               <h2 className="font-semibold group-hover:text-gold transition-colors">
-                {panel.scene.acts.scripts.title}
+                {panel.scene.script.title}
               </h2>
               <span className="text-xs text-muted">
-                Act {panel.scene.acts.act_number}
+                Act {panel.scene.actNumber}
               </span>
             </div>
-            <p className="text-sm text-muted mb-3">{panel.scene.scene_heading}</p>
+            <p className="text-sm text-muted mb-3">{panel.scene.sceneHeading}</p>
             <div className="flex items-center gap-4 text-xs text-muted">
               <span>{panel.participantCount} performer{panel.participantCount !== 1 ? 's' : ''}</span>
               <span>{Math.round(panel.coverage * 100)}% coverage</span>

@@ -1,24 +1,24 @@
 'use client';
 
-interface ChunkBreakdownProps {
-  dialogue: number;
-  action: number;
-  sceneHeading: number;
-  transition: number;
-  system: number;
-  performable: number;
+interface LineBreakdownProps {
+  dialogueLines: number;
+  actionLines: number;
+  sceneHeadingLines: number;
+  transitionLines: number;
+  systemLines: number;
+  rehearsableLines: number;
 }
 
-export default function ChunkBreakdown(props: ChunkBreakdownProps) {
-  const total = props.dialogue + props.action + props.sceneHeading + props.transition;
+export default function LineBreakdown(props: LineBreakdownProps) {
+  const total = props.dialogueLines + props.actionLines + props.sceneHeadingLines + props.transitionLines;
   if (total === 0) return null;
 
   // Recalculate to ensure counts are correct
-  const performableAction = props.performable - props.dialogue;
+  const rehearsableAction = Math.max(0, props.rehearsableLines - props.dialogueLines);
   const correctedData = [
-    { label: 'Dialogue', count: props.dialogue, color: 'bg-gold' },
-    { label: 'Action', count: performableAction, color: 'bg-amber-700' },
-    { label: 'System', count: props.system, color: 'bg-zinc-600' },
+    { label: 'Dialogue', count: props.dialogueLines, color: 'bg-gold' },
+    { label: 'Action', count: rehearsableAction, color: 'bg-amber-700' },
+    { label: 'System', count: props.systemLines, color: 'bg-zinc-600' },
   ].filter((d) => d.count > 0);
 
   return (

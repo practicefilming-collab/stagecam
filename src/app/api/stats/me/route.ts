@@ -9,7 +9,7 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Get all recordings by this user, joined with chunk → scene → act → script
+  // Get all recordings by this user, joined with line → scene → act → script
   const { data: recordings } = await supabase
     .from('recordings')
     .select(`
@@ -41,10 +41,10 @@ export async function GET() {
   if (!recordings || recordings.length === 0) {
     return NextResponse.json({
       characters: [],
-      recentSessions: [],
+      recentScenes: [],
       summary: {
         totalRecordings: 0,
-        uniqueChunksRecorded: 0,
+        uniqueLinesRecorded: 0,
         scriptsContributedTo: 0,
         typeBreakdown: { dialogue: 0, action: 0, scene_heading: 0, transition: 0 },
       },
@@ -52,7 +52,7 @@ export async function GET() {
   }
 
   // Extract unique characters played, grouped by script
-  type ChunkJoin = {
+  type LineJoin = {
     id: string;
     type: string;
     character: string | null;
@@ -78,73 +78,68 @@ export async function GET() {
     scriptTitle: string;
     scriptYear: number | null;
     scriptSlug: string;
-    actChunks: Map<number, { recorded: Set<string>; total: number }>;
-    recordedChunkIds: Set<string>;
+    actLines: Map<number, { recorded: Set<string>; total: number }>;
+    recordedLineIds: Set<string>;
   }>();
 
-  // Collect all script+act combos to query total dialogue per character
-  const scriptActPairs = new Set<string>();
-
   for (const rec of recordings) {
-    const chunk = rec.chunks as unknown as ChunkJoin;
-    if (!chunk.character) continue;
+    const line = rec.chunks as unknown as LineJoin;
+    if (!line.character) continue;
 
-    const act = chunk.scenes.acts;
+    const act = line.scenes.acts;
     const script = act.scripts;
-    const key = `${chunk.character}::${script.id}`;
-
-    scriptActPairs.add(`${script.id}::${act.id}::${act.act_number}`);
+    const key = `${line.character}::${script.id}`;
 
     if (!charScriptMap.has(key)) {
       charScriptMap.set(key, {
-        character: chunk.character,
+        character: line.character,
         scriptId: script.id,
         scriptTitle: script.title,
         scriptYear: script.year,
         scriptSlug: script.slug,
-        actChunks: new Map(),
-        recordedChunkIds: new Set(),
+        actLines: new Map(),
+        recordedLineIds: new Set(),
       });
     }
 
     const entry = charScriptMap.get(key)!;
-    entry.recordedChunkIds.add(chunk.id);
+    entry.recordedLineIds.add(line.id);
 
-    if (!entry.actChunks.has(act.act_number)) {
-      entry.actChunks.set(act.act_number, { recorded: new Set(), total: 0 });
+    if (!entry.actLines.has(act.act_number)) {
+      entry.actLines.set(act.act_number, { recorded: new Set(), total: 0 });
     }
-    entry.actChunks.get(act.act_number)!.recorded.add(chunk.id);
+    entry.actLines.get(act.act_number)!.recorded.add(line.id);
   }
 
-  // Query total dialogue chunks per character per act for each script
+  // Query total dialogue lines per character per act for each script
   const scriptIds = [...new Set([...charScriptMap.values()].map(e => e.scriptId))];
 
   for (const scriptId of scriptIds) {
     const characters = [...charScriptMap.values()].filter(e => e.scriptId === scriptId).map(e => e.character);
 
-    const { data: totalChunks } = await supabase
+    const { data: totalLines } = await supabase
       .from('chunks')
       .select('id, character, scenes!inner(acts!inner(act_number, script_id))')
       .eq('type', 'dialogue')
       .in('character', characters)
       .eq('scenes.acts.script_id', scriptId);
 
-    for (const tc of totalChunks ?? []) {
+    for (const tc of totalLines ?? []) {
       const actInfo = (tc.scenes as unknown as { acts: { act_number: number; script_id: string } }).acts;
       const key = `${tc.character}::${scriptId}`;
       const entry = charScriptMap.get(key);
       if (!entry) continue;
 
-      if (!entry.actChunks.has(actInfo.act_number)) {
-        entry.actChunks.set(actInfo.act_number, { recorded: new Set(), total: 0 });
+      if (!entry.actLines.has(actInfo.act_number)) {
+        entry.actLines.set(actInfo.act_number, { recorded: new Set(), total: 0 });
       }
-      entry.actChunks.get(actInfo.act_number)!.total++;
+      entry.actLines.get(actInfo.act_number)!.total++;
     }
   }
 
   // Build character cards
   const characters = [...charScriptMap.values()].map(entry => {
-    const acts = [...entry.actChunks.entries()]
+    const acts = [...entry.actLines.entries()]
       .sort(([a], [b]) => a - b)
       .map(([actNumber, data]) => ({
         actNumber,
@@ -153,7 +148,7 @@ export async function GET() {
       }));
 
     const totalRecorded = acts.reduce((s, a) => s + a.recorded, 0);
-    const totalChunks = acts.reduce((s, a) => s + a.total, 0);
+    const totalLines = acts.reduce((s, a) => s + a.total, 0);
 
     return {
       character: entry.character,
@@ -163,8 +158,8 @@ export async function GET() {
       scriptSlug: entry.scriptSlug,
       acts,
       totalRecorded,
-      totalChunks,
-      completionPct: totalChunks > 0 ? Math.round((totalRecorded / totalChunks) * 100) : 0,
+      totalLines,
+      completionPct: totalLines > 0 ? Math.round((totalRecorded / totalLines) * 100) : 0,
     };
   }).sort((a, b) => b.totalRecorded - a.totalRecorded);
 
@@ -178,16 +173,16 @@ export async function GET() {
   }>();
 
   for (const rec of recordings) {
-    const chunk = rec.chunks as unknown as ChunkJoin;
+    const line = rec.chunks as unknown as LineJoin;
     const date = rec.created_at.slice(0, 10); // ISO date (day only)
-    const groupKey = `${chunk.scenes.id}::${date}`;
-    const charKey = chunk.character ?? '__narrator__';
+    const groupKey = `${line.scenes.id}::${date}`;
+    const charKey = line.character ?? '__narrator__';
 
     if (!sceneGroupMap.has(groupKey)) {
       sceneGroupMap.set(groupKey, {
-        sceneId: chunk.scenes.id,
-        sceneHeading: chunk.scenes.scene_heading,
-        scriptTitle: chunk.scenes.acts.scripts.title,
+        sceneId: line.scenes.id,
+        sceneHeading: line.scenes.scene_heading,
+        scriptTitle: line.scenes.acts.scripts.title,
         date,
         entriesMap: new Map(),
       });
@@ -195,7 +190,7 @@ export async function GET() {
 
     const group = sceneGroupMap.get(groupKey)!;
     if (!group.entriesMap.has(charKey)) {
-      group.entriesMap.set(charKey, { character: chunk.character, count: 0, recordingIds: [] });
+      group.entriesMap.set(charKey, { character: line.character, count: 0, recordingIds: [] });
     }
     const entry = group.entriesMap.get(charKey)!;
     entry.count++;
@@ -215,19 +210,19 @@ export async function GET() {
   // Build summary including all recording types (not just dialogue)
   const uniqueScriptIds = new Set<string>();
   const typeBreakdown = { dialogue: 0, action: 0, scene_heading: 0, transition: 0 };
-  const uniqueChunkIds = new Set<string>();
+  const uniqueLineIds = new Set<string>();
 
   for (const rec of recordings) {
-    const chunk = rec.chunks as unknown as ChunkJoin;
-    uniqueChunkIds.add(chunk.id);
-    uniqueScriptIds.add(chunk.scenes.acts.scripts.id);
-    const t = chunk.type as keyof typeof typeBreakdown;
+    const line = rec.chunks as unknown as LineJoin;
+    uniqueLineIds.add(line.id);
+    uniqueScriptIds.add(line.scenes.acts.scripts.id);
+    const t = line.type as keyof typeof typeBreakdown;
     if (t in typeBreakdown) typeBreakdown[t]++;
   }
 
   const summary = {
     totalRecordings: recordings.length,
-    uniqueChunksRecorded: uniqueChunkIds.size,
+    uniqueLinesRecorded: uniqueLineIds.size,
     scriptsContributedTo: uniqueScriptIds.size,
     typeBreakdown,
   };

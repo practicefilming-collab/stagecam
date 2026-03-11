@@ -5,7 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useMediaDevices } from '@/hooks/use-media-devices';
 import { useRecording } from '@/hooks/use-recording';
-import type { Chunk, AssignedChunk, Room, Script } from '@/lib/types';
+import { getLineText, mapStoredAssignmentsToLines } from '@/lib/line-helpers';
+import type { Line, AssignedLine, AssignedChunk, Room, Script } from '@/lib/types';
 
 export default function RehearsePage() {
   const params = useParams();
@@ -18,9 +19,9 @@ export default function RehearsePage() {
 
   const [room, setRoom] = useState<Room | null>(null);
   const [script, setScript] = useState<Script | null>(null);
-  const [assignedChunks, setAssignedChunks] = useState<AssignedChunk[]>([]);
-  const [chunks, setChunks] = useState<Chunk[]>([]);
-  const [currentChunkIdx, setCurrentChunkIdx] = useState(0);
+  const [assignedLines, setAssignedLines] = useState<AssignedLine[]>([]);
+  const [lines, setLines] = useState<Line[]>([]);
+  const [currentLineIdx, setCurrentLineIdx] = useState(0);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
@@ -58,18 +59,18 @@ export default function RehearsePage() {
         .eq('user_id', user.id)
         .single();
 
-      const assigned = (participant?.assigned_chunks ?? []) as AssignedChunk[];
-      setAssignedChunks(assigned);
+      const assigned = mapStoredAssignmentsToLines((participant?.assigned_chunks ?? []) as AssignedChunk[]);
+      setAssignedLines(assigned);
 
-      // Load chunk details
+      // Load line details
       if (assigned.length > 0) {
-        const chunkIds = assigned.map((a) => a.chunk_id);
-        const { data: chunkData } = await supabase
+        const lineIds = assigned.map((a) => a.line_id);
+        const { data: lineData } = await supabase
           .from('chunks')
           .select('*')
-          .in('id', chunkIds)
+          .in('id', lineIds)
           .order('chunk_index');
-        setChunks(chunkData ?? []);
+        setLines(lineData ?? []);
       }
 
       setLoading(false);
@@ -83,13 +84,13 @@ export default function RehearsePage() {
     }
   }, [hasPermission, requestPermission]);
 
-  const currentChunk = chunks[currentChunkIdx] ?? null;
-  const currentAssignment = assignedChunks.find(
-    (a) => a.chunk_id === currentChunk?.id
+  const currentLine = lines[currentLineIdx] ?? null;
+  const currentAssignment = assignedLines.find(
+    (a) => a.line_id === currentLine?.id
   );
 
   const uploadRecording = async () => {
-    if (!blob || !currentChunk || !room) return;
+    if (!blob || !currentLine || !room) return;
     setUploading(true);
     setUploadError('');
 
@@ -102,7 +103,7 @@ export default function RehearsePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           scriptId: room.script_id,
-          chunkId: currentChunk.id,
+          lineId: currentLine.id,
           ext,
         }),
       });
@@ -134,7 +135,7 @@ export default function RehearsePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          chunk_id: currentChunk.id,
+          line_id: currentLine.id,
           room_id: room.id,
           video_url: key,
           duration_seconds: duration,
@@ -149,9 +150,9 @@ export default function RehearsePage() {
         return;
       }
 
-      // Move to next chunk or finish
-      if (currentChunkIdx < chunks.length - 1) {
-        setCurrentChunkIdx((prev) => prev + 1);
+      // Move to next line or finish
+      if (currentLineIdx < lines.length - 1) {
+        setCurrentLineIdx((prev) => prev + 1);
         reset();
       } else {
         router.push(`/stage/${roomCode}/complete`);
@@ -171,10 +172,10 @@ export default function RehearsePage() {
     );
   }
 
-  if (chunks.length === 0) {
+  if (lines.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-3.5rem)] text-center px-4">
-        <p className="text-muted text-lg mb-4">No chunks assigned to you for this session.</p>
+        <p className="text-muted text-lg mb-4">No lines assigned to you for this session.</p>
         <button
           onClick={() => router.push('/menu')}
           className="px-6 py-2 bg-surface border border-border rounded-lg text-sm hover:bg-surface-hover"
@@ -193,7 +194,7 @@ export default function RehearsePage() {
       <div className="h-1 bg-border flex-shrink-0">
         <div
           className="h-full bg-gold transition-all"
-          style={{ width: `${((currentChunkIdx + 1) / chunks.length) * 100}%` }}
+          style={{ width: `${((currentLineIdx + 1) / lines.length) * 100}%` }}
         />
       </div>
 
@@ -201,7 +202,7 @@ export default function RehearsePage() {
       <div className="px-4 py-2 border-b border-border flex items-center justify-between flex-shrink-0">
         <div>
           <span className="text-sm text-muted">
-            {script?.title} - Chunk {currentChunkIdx + 1}/{chunks.length}
+            {script?.title} - Line {currentLineIdx + 1}/{lines.length}
           </span>
           {currentAssignment?.character && (
             <span className="ml-3 px-2 py-0.5 bg-gold/10 text-gold text-xs rounded-full">
@@ -210,7 +211,7 @@ export default function RehearsePage() {
           )}
         </div>
         <span className="text-xs text-muted uppercase">
-          {currentChunk?.type}
+          {currentLine?.type}
         </span>
       </div>
 
@@ -274,7 +275,7 @@ export default function RehearsePage() {
 
         {/* Script text */}
         <div className="flex-1 min-h-0 bg-surface p-4 lg:p-6 overflow-y-auto">
-          {currentChunk?.type === 'scene_heading' && (
+          {currentLine?.type === 'scene_heading' && (
             <div className="text-gold text-xs uppercase tracking-wider mb-3">
               Scene Heading
             </div>
@@ -285,7 +286,7 @@ export default function RehearsePage() {
             </div>
           )}
           <p className="text-base lg:text-lg leading-relaxed whitespace-pre-wrap">
-            {currentChunk?.tts_text ?? currentChunk?.chunk_text}
+            {currentLine ? getLineText(currentLine) : ''}
           </p>
         </div>
       </div>
@@ -331,7 +332,7 @@ export default function RehearsePage() {
               disabled={uploading}
               className="px-8 py-3 bg-gold text-black rounded-full font-semibold hover:bg-gold-dim transition-colors disabled:opacity-50"
             >
-              {uploading ? 'Uploading...' : currentChunkIdx < chunks.length - 1 ? 'Upload & Next' : 'Upload & Finish'}
+              {uploading ? 'Uploading...' : currentLineIdx < lines.length - 1 ? 'Upload & Next' : 'Upload & Finish'}
             </button>
           </>
         )}

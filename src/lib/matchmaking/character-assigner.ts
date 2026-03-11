@@ -7,7 +7,7 @@ import type { CharacterProfile } from './types';
  * When a roleDraft is provided, those assignments are used first.
  * Remaining unclaimed characters are auto-assigned to remaining participants.
  *
- * @param characters Pre-sorted by dialogueChunkCount DESC
+ * @param characters Pre-sorted by dialogueLineCount DESC
  * @param participantIds Ordered by join time
  * @param roleDraft Optional user-selected role mappings (userId → character names)
  * @returns Map<userId, characterName>

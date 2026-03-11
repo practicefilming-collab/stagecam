@@ -1,13 +1,13 @@
-import { normalizeScriptText } from '@/lib/utils';
+import { getLineText } from '@/lib/line-helpers';
 import { r2, R2_BUCKET } from '@/lib/r2';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export interface PlaybackItem {
-  chunkId: string;
-  chunkIndex: number;
-  chunkInScene: number;
+  lineId: string;
+  lineIndex: number;
+  lineInScene: number;
   type: string;
   character: string | null;
   isSystem: boolean;
@@ -31,11 +31,11 @@ export interface ScenePlaybackData {
   };
   items: PlaybackItem[];
   stats: {
-    totalChunks: number;
-    performableChunks: number;
-    recordedChunks: number;
-    ttsChunks: number;
-    systemChunks: number;
+    totalLines: number;
+    rehearsableLines: number;
+    recordedLines: number;
+    ttsLines: number;
+    systemLines: number;
   };
 }
 
@@ -51,13 +51,13 @@ export async function buildScenePlaybackData(
 
   if (!scene) return null;
 
-  const { data: chunks } = await supabase
+  const { data: dbLines } = await supabase
     .from('chunks')
     .select('*')
     .eq('scene_id', sceneId)
     .order('chunk_in_scene');
 
-  const chunkRows = (chunks ?? []) as Array<{
+  const lineRows = (dbLines ?? []) as Array<{
     id: string;
     chunk_index: number;
     chunk_in_scene: number;
@@ -69,13 +69,13 @@ export async function buildScenePlaybackData(
     tts_audio_url: string | null;
   }>;
 
-  if (chunkRows.length === 0) return null;
+  if (lineRows.length === 0) return null;
 
-  const chunkIds = chunkRows.map((c) => c.id);
+  const lineIds = lineRows.map((line) => line.id);
   const { data: recordings } = await supabase
     .from('recordings')
     .select('*, profiles(display_name)')
-    .in('chunk_id', chunkIds)
+    .in('chunk_id', lineIds)
     .order('created_at', { ascending: false });
 
   const recordingRows = (recordings ?? []) as Array<{
@@ -92,11 +92,11 @@ export async function buildScenePlaybackData(
     .select('user_id, assigned_chunks')
     .eq('room_id', recordingRows[0]?.room_id ?? '');
 
-  const chunkAssignmentMap = new Map<string, string>();
+  const lineAssignmentMap = new Map<string, string>();
   for (const rp of (roomParticipants ?? []) as Array<{ user_id: string; assigned_chunks: { chunk_id: string }[] | null }>) {
     const assigned = rp.assigned_chunks ?? [];
     for (const a of assigned) {
-      chunkAssignmentMap.set(a.chunk_id, rp.user_id);
+      lineAssignmentMap.set(a.chunk_id, rp.user_id);
     }
   }
 
@@ -108,14 +108,14 @@ export async function buildScenePlaybackData(
   }
 
   const r2SignedUrls = new Map<string, string>();
-  for (const [chunkId, rec] of recordingMap) {
+  for (const [lineId, rec] of recordingMap) {
     try {
       const command = new GetObjectCommand({
         Bucket: R2_BUCKET,
         Key: rec.video_url,
       });
       const url = await getSignedUrl(r2, command, { expiresIn: 3600 });
-      r2SignedUrls.set(chunkId, url);
+      r2SignedUrls.set(lineId, url);
     } catch {
       // Skip if cannot sign
     }
@@ -123,28 +123,28 @@ export async function buildScenePlaybackData(
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 
-  const items: PlaybackItem[] = chunkRows.map((chunk) => {
-    const recording = recordingMap.get(chunk.id);
-    const r2Url = r2SignedUrls.get(chunk.id);
-    const ttsUrl = chunk.tts_audio_url
-      ? `${supabaseUrl}/storage/v1/object/public/tts-audio/${chunk.tts_audio_url}`
+  const items: PlaybackItem[] = lineRows.map((line) => {
+    const recording = recordingMap.get(line.id);
+    const r2Url = r2SignedUrls.get(line.id);
+    const ttsUrl = line.tts_audio_url
+      ? `${supabaseUrl}/storage/v1/object/public/tts-audio/${line.tts_audio_url}`
       : null;
 
     return {
-      chunkId: chunk.id,
-      chunkIndex: chunk.chunk_index,
-      chunkInScene: chunk.chunk_in_scene,
-      type: chunk.type,
-      character: chunk.character,
-      isSystem: chunk.is_system ?? false,
-      text: chunk.tts_text ?? normalizeScriptText(chunk.chunk_text),
+      lineId: line.id,
+      lineIndex: line.chunk_index,
+      lineInScene: line.chunk_in_scene,
+      type: line.type,
+      character: line.character,
+      isSystem: line.is_system ?? false,
+      text: getLineText(line),
       hasRecording: !!recording,
       recordingUrl: r2Url ?? null,
       recordingFormat: recording?.format ?? null,
       performerName: recording?.profiles?.display_name ?? null,
       fallbackSource: recording
-        ? (chunkAssignmentMap.get(chunk.id) === recording.user_id ? 'performer' : 'cover')
-        : chunk.tts_audio_url ? 'tts' : 'text',
+        ? (lineAssignmentMap.get(line.id) === recording.user_id ? 'performer' : 'cover')
+        : line.tts_audio_url ? 'tts' : 'text',
       ttsUrl,
     };
   });
@@ -167,11 +167,11 @@ export async function buildScenePlaybackData(
     },
     items,
     stats: {
-      totalChunks: chunkRows.length,
-      performableChunks: chunkRows.filter((c) => !c.is_system).length,
-      recordedChunks: recordingMap.size,
-      ttsChunks: chunkRows.length - recordingMap.size,
-      systemChunks: chunkRows.filter((c) => c.is_system).length,
+      totalLines: lineRows.length,
+      rehearsableLines: lineRows.filter((line) => !line.is_system).length,
+      recordedLines: recordingMap.size,
+      ttsLines: lineRows.length - recordingMap.size,
+      systemLines: lineRows.filter((line) => line.is_system).length,
     },
   };
 }

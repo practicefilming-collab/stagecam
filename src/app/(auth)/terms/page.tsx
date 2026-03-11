@@ -43,7 +43,7 @@ export default function TermsPage() {
           <h3 className="text-foreground font-semibold">2. Recording Consent</h3>
           <p>
             Your webcam recordings may be matched with other performers who have
-            recorded chunks from the same scene. By recording, you consent to your
+            recorded lines from the same scene. By recording, you consent to your
             video being viewable by other participants in composite scene playbacks.
           </p>
           <h3 className="text-foreground font-semibold">3. Downloads</h3>

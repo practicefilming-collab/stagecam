@@ -24,46 +24,46 @@ export async function GET() {
     return NextResponse.json([]);
   }
 
-  // For each script, get scene IDs via acts, then count recorded chunks
+  // For each script, get scene IDs via acts, then count recorded lines
   const stats = [];
   for (const script of scripts) {
     const { data: acts } = await supabase
       .from('acts')
-      .select('scenes(id, performable_chunks)')
+      .select('scenes(id, rehearsable_chunks)')
       .eq('script_id', script.id);
 
     const scenes = (acts ?? []).flatMap(
-      (a) => (a.scenes ?? []) as { id: string; performable_chunks: number }[]
+      (a) => (a.scenes ?? []) as { id: string; rehearsable_chunks: number }[]
     );
     const sceneIds = scenes.map((s) => s.id);
-    const totalPerformable = scenes.reduce((sum, s) => sum + (s.performable_chunks ?? 0), 0);
+    const totalPerformable = scenes.reduce((sum, s) => sum + (s.rehearsable_chunks ?? 0), 0);
 
-    let recordedChunks = 0;
+    let recordedLines = 0;
     if (sceneIds.length > 0) {
-      // Get performable chunk IDs for these scenes
-      const { data: perfChunks } = await supabase
+      // Get rehearsable line ids for these scenes
+      const { data: performableLines } = await supabase
         .from('chunks')
         .select('id')
         .eq('is_system', false)
         .in('scene_id', sceneIds);
 
-      const chunkIds = (perfChunks ?? []).map((c) => c.id);
+      const lineIds = (performableLines ?? []).map((line) => line.id);
 
-      if (chunkIds.length > 0) {
+      if (lineIds.length > 0) {
         const { data: recs } = await supabase
           .from('recordings')
           .select('chunk_id')
-          .in('chunk_id', chunkIds);
+          .in('chunk_id', lineIds);
 
-        recordedChunks = new Set((recs ?? []).map((r) => r.chunk_id)).size;
+        recordedLines = new Set((recs ?? []).map((r) => r.chunk_id)).size;
       }
     }
 
     stats.push({
       ...script,
-      recorded_chunks: recordedChunks,
+      recorded_lines: recordedLines,
       completion: totalPerformable > 0
-        ? Math.round((recordedChunks / totalPerformable) * 100)
+        ? Math.round((recordedLines / totalPerformable) * 100)
         : 0,
     });
   }

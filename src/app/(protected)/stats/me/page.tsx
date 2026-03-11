@@ -6,7 +6,7 @@ import RoleCall from '@/components/stats/role-call';
 
 interface Summary {
   totalRecordings: number;
-  uniqueChunksRecorded: number;
+  uniqueLinesRecorded: number;
   scriptsContributedTo: number;
   typeBreakdown: { dialogue: number; action: number; scene_heading: number; transition: number };
 }
@@ -63,8 +63,8 @@ export default function MyStatsPage() {
 
       {summary && summary.totalRecordings > 0 && (() => {
         const totalRec = characters.reduce((s, c) => s + c.totalRecorded, 0);
-        const totalChk = characters.reduce((s, c) => s + c.totalChunks, 0);
-        const overallPct = totalChk > 0 ? Math.round((totalRec / totalChk) * 100) : 0;
+        const totalLines = characters.reduce((s, c) => s + c.totalLines, 0);
+        const overallPct = totalLines > 0 ? Math.round((totalRec / totalLines) * 100) : 0;
         const tb = summary.typeBreakdown;
         const tbTotal = tb.dialogue + tb.action + tb.scene_heading + tb.transition;
         return (

@@ -1,3 +1,4 @@
+import { getMaxCharacterDialogueLines } from '../line-helpers';
 import type { RollCallEntry } from '../types';
 import type { ScoredScene } from './types';
 
@@ -7,7 +8,7 @@ import type { ScoredScene } from './types';
  * Scoring formula:
  *   score = 4 * (1 - coverageRatio)        — coverage gap (heaviest weight)
  *         + 2 * characterFitScore           — 1 if chars ≤ participants
- *         + 1 * chunkSizeScore              — 1 if biggest role ≤ MAX_CHUNKS_PER_PERSON (soft preference)
+ *         + 1 * lineSizeScore               — 1 if biggest role ≤ 12 lines (soft preference)
  *         + 2 * completionBonus             — boost for 50-95% coverage (finish what you started)
  *
  * Sorts descending, picks from top 3 with random tiebreak.
@@ -25,9 +26,9 @@ export function selectScene(
     // Character fit: graduated score using roll calls, with binary fallback
     const characterFitScore = getCharacterFitScore(s, participantCount);
 
-    // Chunk size score: soft preference for biggest role ≤ 12 chunks
-    const biggestRoleChunks = getBiggestRoleChunks(s);
-    const chunkSizeScore = biggestRoleChunks <= 12 ? 1 : Math.max(0, 1 - (biggestRoleChunks - 12) / 20);
+    // Line size score: soft preference for biggest role ≤ 12 lines
+    const biggestRoleLines = getBiggestRoleLines(s);
+    const lineSizeScore = biggestRoleLines <= 12 ? 1 : Math.max(0, 1 - (biggestRoleLines - 12) / 20);
 
     // Completion bonus: boost scenes at 50-95% coverage to encourage finishing
     let completionBonus = 0;
@@ -39,7 +40,7 @@ export function selectScene(
     const score =
       4 * coverageGap +
       2 * characterFitScore +
-      1 * chunkSizeScore +
+      1 * lineSizeScore +
       2 * completionBonus;
 
     return { scene: s, score };
@@ -70,14 +71,14 @@ function getCharacterFitScore(s: ScoredScene, participantCount: number): number 
   return 0.5;
 }
 
-function getBiggestRoleChunks(s: ScoredScene): number {
-  const stats = s.scene.character_stats;
-  if (stats && stats.length > 0) {
-    return stats[0].dialogue_chunks;
+function getBiggestRoleLines(s: ScoredScene): number {
+  const maxDialogueLines = getMaxCharacterDialogueLines(s.scene.character_stats);
+  if (maxDialogueLines > 0) {
+    return maxDialogueLines;
   }
-  // Fallback: estimate from dialogueChunkCount / characterCount
+  // Fallback: estimate from dialogueLineCount / characterCount
   if (s.characterCount > 0) {
-    return Math.ceil(s.dialogueChunkCount / s.characterCount);
+    return Math.ceil(s.dialogueLineCount / s.characterCount);
   }
   return 0;
 }

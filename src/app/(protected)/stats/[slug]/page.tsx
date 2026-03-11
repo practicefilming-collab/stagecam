@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import ChunkBreakdown from '@/components/stats/chunk-breakdown';
+import LineBreakdown from '@/components/stats/line-breakdown';
 import CharacterRoster from '@/components/stats/character-roster';
 import CoverageGrid from '@/components/stats/coverage-grid';
 
@@ -11,10 +11,10 @@ interface SceneDashboard {
   id: string;
   sceneNumber: number;
   sceneHeading: string | null;
-  totalChunks: number;
-  performableChunks: number;
+  totalLines: number;
+  rehearsableLines: number;
   uniqueCharacters: string[];
-  recorded: number;
+  recordedLines: number;
   completionPct: number;
   rehearsalCount: number;
 }
@@ -22,8 +22,8 @@ interface SceneDashboard {
 interface ActDashboard {
   id: string;
   actNumber: number;
-  totalChunks: number;
-  completion: { totalPerformable: number; recorded: number; percentage: number };
+  totalLines: number;
+  completion: { totalRehearsableLines: number; recordedLines: number; percentage: number };
   scenes: SceneDashboard[];
 }
 
@@ -36,18 +36,18 @@ interface DashboardData {
     slug: string;
     totalActs: number;
     totalScenes: number;
-    totalChunks: number;
+    totalLines: number;
   };
-  chunkBreakdown: {
+  lineBreakdown: {
     dialogue: number;
     action: number;
     scene_heading: number;
     transition: number;
-    system: number;
-    performable: number;
+    systemLines: number;
+    rehearsableLines: number;
   };
-  characters: { name: string; dialogueChunks: number }[];
-  completion: { totalPerformable: number; recorded: number; percentage: number };
+  characters: { name: string; dialogueLines: number }[];
+  completion: { totalRehearsableLines: number; recordedLines: number; percentage: number };
   acts: ActDashboard[];
   rehearsalBalance: {
     totalRehearsals: number;
@@ -100,7 +100,7 @@ export default function ScriptDashboardPage() {
     );
   }
 
-  const { script, chunkBreakdown, characters, completion, acts, rehearsalBalance } = data;
+  const { script, lineBreakdown, characters, completion, acts, rehearsalBalance } = data;
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-12">
@@ -116,20 +116,20 @@ export default function ScriptDashboardPage() {
           {script.year && <span className="text-muted text-lg ml-2">({script.year})</span>}
         </h1>
         <p className="text-sm text-muted mt-1">
-          {script.totalActs} acts &middot; {script.totalScenes} scenes &middot; {script.totalChunks} chunks
+          {script.totalActs} acts &middot; {script.totalScenes} scenes &middot; {script.totalLines} lines
         </p>
       </div>
 
-      {/* Chunk Breakdown */}
+      {/* Line Breakdown */}
       <section className="bg-surface border border-border rounded-2xl p-5 mb-4">
-        <h2 className="text-xs text-muted uppercase tracking-wider mb-3">Chunk Breakdown</h2>
-        <ChunkBreakdown
-          dialogue={chunkBreakdown.dialogue}
-          action={chunkBreakdown.action}
-          sceneHeading={chunkBreakdown.scene_heading}
-          transition={chunkBreakdown.transition}
-          system={chunkBreakdown.system}
-          performable={chunkBreakdown.performable}
+        <h2 className="text-xs text-muted uppercase tracking-wider mb-3">Line Breakdown</h2>
+        <LineBreakdown
+          dialogueLines={lineBreakdown.dialogue}
+          actionLines={lineBreakdown.action}
+          sceneHeadingLines={lineBreakdown.scene_heading}
+          transitionLines={lineBreakdown.transition}
+          systemLines={lineBreakdown.systemLines}
+          rehearsableLines={lineBreakdown.rehearsableLines}
         />
       </section>
 
@@ -138,7 +138,7 @@ export default function ScriptDashboardPage() {
         <h2 className="text-xs text-muted uppercase tracking-wider mb-3">Completion</h2>
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm">
-            {completion.recorded} / {completion.totalPerformable} rehearsable chunks recorded
+            {completion.recordedLines} / {completion.totalRehearsableLines} rehearsable lines recorded
           </span>
           <span className="text-sm font-mono text-gold">{completion.percentage}%</span>
         </div>
@@ -173,7 +173,7 @@ export default function ScriptDashboardPage() {
         </h2>
         <CharacterRoster
           characters={characters}
-          totalDialogue={chunkBreakdown.dialogue}
+          totalDialogueLines={lineBreakdown.dialogue}
         />
       </section>
 

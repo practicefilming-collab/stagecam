@@ -60,10 +60,25 @@ export async function GET(
       sceneHeading: result.sceneHeading,
       sceneNumber: result.sceneNumber,
       actNumber: result.actNumber,
-      totalChunks: result.totalChunks,
-      systemChunks: result.systemChunks,
-      callSheet: result.assignments,
-      characters: result.characters,
+      totalLines: result.totalLines,
+      systemLines: result.systemLines,
+      callSheet: result.assignments.map((assignment) => ({
+        userId: assignment.userId,
+        displayName: assignment.displayName,
+        totalLines: assignment.lines.length,
+        character: assignment.character,
+        dialogueLines: assignment.dialogueCount,
+        actionLines: assignment.actionCount,
+        lines: assignment.lines.map((line) => ({
+          line_id: line.line_id,
+          role: line.role,
+          character: line.character,
+        })),
+      })),
+      characters: result.characters.map((character) => ({
+        name: character.name,
+        dialogueLines: character.dialogueCount,
+      })),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Preview failed';

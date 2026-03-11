@@ -6,7 +6,7 @@ import Link from 'next/link';
 import type { Script } from '@/lib/types';
 
 interface ScriptStats extends Script {
-  recorded_chunks: number;
+  recorded_lines: number;
   completion: number;
 }
 
@@ -86,7 +86,7 @@ export default function CoverageStatsPage() {
             </div>
 
             <div className="flex items-center justify-between mt-2 text-xs text-muted">
-              <span>{script.recorded_chunks} recorded</span>
+              <span>{script.recorded_lines} lines recorded</span>
               <span>{script.total_acts} acts, {script.total_scenes} scenes</span>
             </div>
           </Link>

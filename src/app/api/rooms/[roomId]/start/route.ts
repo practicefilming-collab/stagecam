@@ -74,7 +74,7 @@ export async function POST(
     for (const assignment of result.assignments) {
       await supabase
         .from('room_participants')
-        .update({ assigned_chunks: assignment.chunks })
+        .update({ assigned_chunks: assignment.lines })
         .eq('room_id', roomId)
         .eq('user_id', assignment.userId);
     }

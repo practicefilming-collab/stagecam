@@ -7,8 +7,8 @@ interface SceneData {
   id: string;
   sceneNumber: number;
   sceneHeading: string | null;
-  performableChunks: number;
-  recorded: number;
+  rehearsableLines: number;
+  recordedLines: number;
   completionPct: number;
   rehearsalCount: number;
 }
@@ -16,7 +16,7 @@ interface SceneData {
 interface ActData {
   id: string;
   actNumber: number;
-  completion: { totalPerformable: number; recorded: number; percentage: number };
+  completion: { totalRehearsableLines: number; recordedLines: number; percentage: number };
   scenes: SceneData[];
 }
 
@@ -43,9 +43,9 @@ export default function CoverageGrid({ acts }: CoverageGridProps) {
 
   // Rehearsal balance summary
   const allScenes = acts.flatMap((a) => a.scenes);
-  const performableScenes = allScenes.filter((s) => s.performableChunks > 0);
-  const neverRehearsed = performableScenes.filter((s) => s.rehearsalCount === 0).length;
-  const hotCount = performableScenes.filter((s) => s.rehearsalCount >= 5).length;
+  const rehearsableScenes = allScenes.filter((s) => s.rehearsableLines > 0);
+  const neverRehearsed = rehearsableScenes.filter((s) => s.rehearsalCount === 0).length;
+  const hotCount = rehearsableScenes.filter((s) => s.rehearsalCount >= 5).length;
 
   return (
     <div>
@@ -90,7 +90,7 @@ export default function CoverageGrid({ acts }: CoverageGridProps) {
                   : getRehearsalColor(scene.rehearsalCount);
 
                 const tooltip = mode === 'coverage'
-                  ? `Scene ${scene.sceneNumber}: ${scene.sceneHeading ?? 'Untitled'} — ${scene.recorded}/${scene.performableChunks} (${scene.completionPct}%)`
+                  ? `Scene ${scene.sceneNumber}: ${scene.sceneHeading ?? 'Untitled'} — ${scene.recordedLines}/${scene.rehearsableLines} lines (${scene.completionPct}%)`
                   : `Scene ${scene.sceneNumber}: ${scene.sceneHeading ?? 'Untitled'} — ${scene.rehearsalCount} rehearsal${scene.rehearsalCount !== 1 ? 's' : ''}`;
 
                 return (

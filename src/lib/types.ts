@@ -1,7 +1,8 @@
 /** Shared TypeScript interfaces matching the Supabase schema. */
 export type AuthProvider = 'instagram' | 'tiktok' | 'google';
 
-export type ChunkType = 'scene_heading' | 'action' | 'dialogue' | 'transition';
+export type LineType = 'scene_heading' | 'action' | 'dialogue' | 'transition';
+export type ChunkType = LineType;
 
 export type RoomStatus = 'waiting' | 'active' | 'closed';
 
@@ -47,22 +48,24 @@ export interface Scene {
   total_chunks: number;
   unique_characters: string[];
   character_stats?: { name: string; dialogue_chunks: number; total_chunks: number }[];
-  performable_chunks: number;
+  rehearsable_chunks: number;
   roll_calls?: RollCallEntry[];
 }
 
-export interface Chunk {
+export interface Line {
   id: string;
   scene_id: string;
   chunk_index: number;
   chunk_in_scene: number;
-  type: ChunkType;
+  type: LineType;
   character: string | null;
   tts_text: string | null;
   chunk_text: string;
   tts_audio_url: string | null;
   is_system: boolean;
 }
+
+export type Chunk = Line;
 
 export interface Room {
   id: string;
@@ -87,9 +90,15 @@ export interface RoomParticipant {
   is_creator: boolean;
 }
 
+export interface AssignedLine {
+  line_id: string;
+  role: LineType;
+  character?: string;
+}
+
 export interface AssignedChunk {
   chunk_id: string;
-  role: 'dialogue' | 'action' | 'scene_heading' | 'transition';
+  role: LineType;
   character?: string;
 }
 
@@ -128,12 +137,14 @@ export interface ScriptRequestVote {
   created_at: string;
 }
 
-export interface ChunkLike {
+export interface LineLike {
   id: string;
   recording_id: string;
   user_id: string;
   created_at: string;
 }
+
+export type ChunkLike = LineLike;
 
 // Presence type for realtime
 export interface RoomPresence {
@@ -149,8 +160,8 @@ export interface RollCallEntry {
   actionsPerNarrator: number;
 }
 
-// Parsed chunk from pipeline markdown
-export interface ParsedChunk {
+// Parsed line from pipeline markdown. Source metadata remains chunk-shaped for pipeline compatibility.
+export interface ParsedLine {
   script: string;
   rank: number;
   year: number;
@@ -159,7 +170,9 @@ export interface ParsedChunk {
   scene_heading: string;
   chunk_index: number;
   chunk_in_scene: number;
-  type: ChunkType;
+  type: LineType;
   character?: string;
   content: string;
 }
+
+export type ParsedChunk = ParsedLine;

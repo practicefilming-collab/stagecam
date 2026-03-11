@@ -1,9 +1,9 @@
-import { MAX_CHUNKS_PER_PERSON, MAX_PARTICIPANTS } from '../constants';
+import { MAX_LINES_PER_PERSON, MAX_PARTICIPANTS } from '../constants';
 import type { RollCallEntry } from '../types';
 
 /** Precompute role distribution for every valid participant count (1–N). */
-export function computeRollCalls(characterCount: number, actionChunkCount: number): RollCallEntry[] {
-  const maxNarrators = actionChunkCount > 0 ? actionChunkCount : 0;
+export function computeRollCalls(characterCount: number, actionLineCount: number): RollCallEntry[] {
+  const maxNarrators = actionLineCount > 0 ? actionLineCount : 0;
   const maxParticipants = Math.min(MAX_PARTICIPANTS, Math.max(1, characterCount + maxNarrators));
   const entries: RollCallEntry[] = [];
 
@@ -11,8 +11,8 @@ export function computeRollCalls(characterCount: number, actionChunkCount: numbe
     const characters = Math.min(n, characterCount);
     const narrators = Math.max(0, n - characterCount);
     let actionsPerNarrator = 0;
-    if (narrators > 0 && actionChunkCount > 0) {
-      actionsPerNarrator = Math.min(MAX_CHUNKS_PER_PERSON, Math.floor(actionChunkCount / narrators));
+    if (narrators > 0 && actionLineCount > 0) {
+      actionsPerNarrator = Math.min(MAX_LINES_PER_PERSON, Math.floor(actionLineCount / narrators));
     }
     entries.push({ participants: n, characters, narrators, actionsPerNarrator });
   }

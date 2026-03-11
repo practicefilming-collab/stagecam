@@ -9,7 +9,7 @@ export function buildPlaybackSequence(
   recordings: Recording[]
 ): SequenceItem[] {
   const sorted = [...recordings].sort((a, b) => {
-    // Sort by chunk_id to maintain order (assumes chunk_id correlates with order)
+    // Sort by recorded line id to maintain a stable order.
     return a.chunk_id.localeCompare(b.chunk_id);
   });
 
