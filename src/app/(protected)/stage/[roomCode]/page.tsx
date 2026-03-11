@@ -12,7 +12,7 @@ import {
   getScriptTotalLines,
   summarizeCharacterDialogueLines,
 } from '@/lib/line-helpers';
-import type { Room, Script, Act, Scene, RoomPresence, PublicIdentityPlatform } from '@/lib/types';
+import type { Room, Script, Act, Scene, RoomPresence, PublicIdentityPlatform, RollCallEntry } from '@/lib/types';
 
 interface CallSheetEntry {
   userId: string;
@@ -103,6 +103,22 @@ function getPresenceIdentityLabel(participant: RoomPresence) {
   }
 
   return 'Incognito';
+}
+
+function getRollCallEntryForParticipants(
+  scene: Scene,
+  participantCount: number
+): RollCallEntry | undefined {
+  const rollCalls = scene.roll_calls as RollCallEntry[] | undefined;
+  if (!rollCalls || participantCount < 1) return undefined;
+
+  if (participantCount < 7) {
+    return rollCalls.find((entry) => entry.participants === participantCount);
+  }
+
+  return rollCalls
+    .filter((entry) => entry.participants >= participantCount)
+    .sort((a, b) => a.narrators - b.narrators)[0];
 }
 
 export default function BackstagePage() {
@@ -994,16 +1010,38 @@ export default function BackstagePage() {
                               ) : null;
                             })()}
                             {pickMode === 'length' && (
-                              charStats.length === 0 ? (
-                                <>narrator only</>
-                              ) : (
-                                <>
-                                  {charCount} character{charCount !== 1 ? 's' : ''}
-                                  <span className="text-muted ml-2">
-                                    · {summarizeCharacterDialogueLines(charStats)}
-                                  </span>
-                                </>
-                              )
+                              (() => {
+                                const participantEntry = getRollCallEntryForParticipants(scene, participants.length);
+
+                                if (participantEntry) {
+                                  return (
+                                    <>
+                                      {participantEntry.participants} participant{participantEntry.participants !== 1 ? 's' : ''}
+                                      <span className="text-muted ml-2">
+                                        · {participantEntry.characters} speaking
+                                      </span>
+                                      {participantEntry.narrators > 0 && (
+                                        <span className="text-muted ml-2">
+                                          · {participantEntry.narrators} narrator{participantEntry.narrators !== 1 ? 's' : ''}
+                                        </span>
+                                      )}
+                                    </>
+                                  );
+                                }
+
+                                if (charStats.length === 0) {
+                                  return <>narrator only</>;
+                                }
+
+                                return (
+                                  <>
+                                    {charCount} character{charCount !== 1 ? 's' : ''}
+                                    <span className="text-muted ml-2">
+                                      · {summarizeCharacterDialogueLines(charStats)}
+                                    </span>
+                                  </>
+                                );
+                              })()
                             )}
                             {pickMode === 'act-scene' && (
                               charStats.length > 0
