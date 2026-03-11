@@ -785,7 +785,11 @@ export default function BackstagePage() {
                       const charCount = scene.unique_characters.length;
                       const dialogueLines = charStats.reduce((sum, stat) => sum + stat.dialogue_chunks, 0);
                       const rehearsableLines = getSceneRehearsableLines(scene);
-                      const narratorLines = Math.max(0, rehearsableLines - dialogueLines);
+                      const narrationLines = Math.max(0, rehearsableLines - dialogueLines);
+                      const breakdownParts = [
+                        dialogueLines > 0 ? `${dialogueLines} dialogue` : null,
+                        narrationLines > 0 ? `${narrationLines} narration` : null,
+                      ].filter(Boolean);
                       return (
                         <button
                           key={scene.id}
@@ -809,8 +813,7 @@ export default function BackstagePage() {
                             </span>
                           </div>
                           <div className="mt-1 text-[11px] text-muted">
-                            {dialogueLines} dialogue{narratorLines > 0 ? ` + ${narratorLines} narrator` : ''}
-                            {narratorLines !== 1 && narratorLines > 0 ? 's' : ''}
+                            {breakdownParts.length > 0 ? breakdownParts.join(' + ') : '0 rehearsable lines'}
                           </div>
 
                           {/* Context row varies by sub-mode */}
