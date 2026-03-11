@@ -99,7 +99,9 @@ export default function BackstagePage() {
   const myRoles = preview?.characters.filter(
     (c) => roleClaims.get(c.name)?.userId === currentUserId
   ) ?? [];
-  const hasRole = myRoles.length > 0 || wantsNarrator;
+  const isNarratorOnly = (preview?.characters.length ?? 0) === 0;
+  const isSoloNarrator = participants.length === 1 && isNarratorOnly;
+  const hasRole = myRoles.length > 0 || wantsNarrator || isSoloNarrator;
 
   // Derived: narration line count
   const narrationCount = preview
@@ -819,19 +821,28 @@ export default function BackstagePage() {
                                 : rollCalls?.filter((e) => e.participants >= 7).sort((a, b) => a.narrators - b.narrators)[0];
                               return entry ? (
                                 <>
-                                  {entry.characters} speaking · {entry.narrators} narrator{entry.narrators !== 1 ? 's' : ''}
+                                  {entry.characters} speaking
+                                  {entry.narrators > 0 ? (
+                                    <> · {entry.narrators} narrator{entry.narrators !== 1 ? 's' : ''}</>
+                                  ) : (
+                                    <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gold/20 text-gold border border-gold/30">
+                                      perfect fit
+                                    </span>
+                                  )}
                                 </>
                               ) : null;
                             })()}
                             {pickMode === 'length' && (
-                              <>
-                                {charCount} character{charCount !== 1 ? 's' : ''}
-                                {charStats.length > 0 && (
+                              charStats.length === 0 ? (
+                                <>narrator only</>
+                              ) : (
+                                <>
+                                  {charCount} character{charCount !== 1 ? 's' : ''}
                                   <span className="text-muted ml-2">
                                     · {summarizeCharacterDialogueLines(charStats)}
                                   </span>
-                                )}
-                              </>
+                                </>
+                              )
                             )}
                             {pickMode === 'act-scene' && (
                               charStats.length > 0
@@ -1046,9 +1057,14 @@ export default function BackstagePage() {
                     {unclaimedCount} role{unclaimedCount !== 1 ? 's' : ''} unclaimed — will be auto-assigned
                   </p>
                 )}
+                {participants.length > 1 && roleClaims.size === 0 && !isNarratorOnly && (
+                  <p className="text-xs text-red-400 text-center">
+                    At least one person must claim a role
+                  </p>
+                )}
                 <button
                   onClick={startSession}
-                  disabled={starting}
+                  disabled={starting || (participants.length > 1 && roleClaims.size === 0 && !isNarratorOnly)}
                   className="w-full py-3 bg-gold text-black rounded-xl font-semibold text-lg hover:bg-gold-dim transition-colors disabled:opacity-50"
                 >
                   {starting
