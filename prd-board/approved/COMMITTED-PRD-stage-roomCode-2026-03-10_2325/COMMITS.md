@@ -8,4 +8,4 @@ Tracks every commit that implements this PRD.
 
 | Hash | Message | PRD Section |
 |------|---------|-------------|
-| *pending* | *Implementation complete, awaiting commit* | Steps 1–7 |
+| 7f834a2 | Rename chunks to lines across app surfaces | Steps 1–7 |
