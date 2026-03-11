@@ -16,6 +16,7 @@ interface UserStat {
   id: string;
   displayName: string;
   authProvider: string;
+  authAccountLabel: string | null;
   isAdmin: boolean;
   publicIdentityPlatform: string;
   publicIdentityLabel: string;
@@ -134,14 +135,16 @@ export default function UserStatsPage() {
             <div className="flex items-center justify-between mb-2 gap-4">
               <div className="flex items-center gap-3">
                 <span className="font-medium">{u.displayName || 'Unnamed'}</span>
-                {providerBadge(u.authProvider)}
+                {providerBadge(u.publicIdentityPlatform)}
                 {u.isAdmin && (
                   <span className="px-2 py-0.5 rounded-full text-xs bg-gold/15 text-gold border border-gold/30">
                     Admin
                   </span>
                 )}
               </div>
-              <span className="text-sm text-muted text-right">{u.publicIdentityLabel}</span>
+              <span className="text-sm text-muted text-right">
+                {u.authAccountLabel ? `Google: ${u.authAccountLabel}` : 'Google'}
+              </span>
             </div>
 
             <div className="flex items-center gap-6 text-xs text-muted mb-3">

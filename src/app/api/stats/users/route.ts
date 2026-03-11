@@ -33,10 +33,14 @@ export async function GET() {
   }
 
   // Get emails and last sign-in for all users via admin API
+  const authEmailLabelMap = new Map<string, string | null>();
   const lastLoginMap = new Map<string, string | null>();
   const { data: { users: authUsers } } = await serviceClient.auth.admin.listUsers({ perPage: 1000 });
   if (authUsers) {
     for (const au of authUsers) {
+      const email = au.email ?? null;
+      const emailLocalPart = email ? email.split('@')[0] ?? null : null;
+      authEmailLabelMap.set(au.id, emailLocalPart);
       lastLoginMap.set(au.id, au.last_sign_in_at ?? null);
     }
   }
@@ -69,6 +73,7 @@ export async function GET() {
       id: p.id,
       displayName: identity.displayName,
       authProvider: p.auth_provider ?? 'unknown',
+      authAccountLabel: authEmailLabelMap.get(p.id) ?? null,
       isAdmin: p.is_admin ?? false,
       publicIdentityPlatform: identity.platform,
       publicIdentityLabel: identity.summaryLabel,
