@@ -154,6 +154,8 @@ export type ChunkLike = LineLike;
 export interface RoomPresence {
   userId: string;
   displayName: string;
+  publicIdentityPlatform: PublicIdentityPlatform | null;
+  publicIdentityUsername: string | null;
   joinedAt: string;
 }
 

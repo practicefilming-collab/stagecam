@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { formatPlatformUsername } from '@/lib/auth/identity';
 import { createClient } from '@/lib/supabase/client';
 import { usePresence } from '@/hooks/use-presence';
 import {
@@ -11,7 +12,7 @@ import {
   getScriptTotalLines,
   summarizeCharacterDialogueLines,
 } from '@/lib/line-helpers';
-import type { Room, Script, Act, Scene, RoomPresence } from '@/lib/types';
+import type { Room, Script, Act, Scene, RoomPresence, PublicIdentityPlatform } from '@/lib/types';
 
 interface CallSheetEntry {
   userId: string;
@@ -26,6 +27,11 @@ interface CallSheetEntry {
 interface SceneCharacter {
   name: string;
   dialogueLines: number;
+}
+
+interface BrowseRole {
+  name: string;
+  lineCount: number;
 }
 
 interface PreviewData {
@@ -52,6 +58,52 @@ interface SceneLineBreakdown {
 }
 
 type Stage = 'script' | 'scene' | 'callsheet';
+
+function getIdentityIcon(platform: PublicIdentityPlatform | null) {
+  switch (platform) {
+    case 'instagram':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true" className="h-3.5 w-3.5">
+          <rect x="3.5" y="3.5" width="17" height="17" rx="5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+          <circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+          <circle cx="17.4" cy="6.7" r="1.1" fill="currentColor" />
+        </svg>
+      );
+    case 'tiktok':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true" className="h-3.5 w-3.5">
+          <path
+            d="M14.3 3c.3 2.3 1.7 4 4.2 4.4v2.9c-1.5 0-2.9-.4-4.2-1.3v6.2a5.2 5.2 0 1 1-5.2-5.2c.4 0 .8 0 1.2.1v3a2.5 2.5 0 1 0 1.1 2.1V3h2.9Z"
+            fill="currentColor"
+          />
+        </svg>
+      );
+    case 'incognito':
+    default:
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true" className="h-3.5 w-3.5">
+          <path
+            d="M6.5 10.8 8.3 6h7.4l1.8 4.8M4 18.2c1.6-2.3 3.4-3.4 5.4-3.4 1.8 0 3.1.9 4.6 2.2 1.2-1.2 2.8-2.2 4.9-2.2 1.4 0 2.8.5 4.1 1.7"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <circle cx="9.2" cy="17.2" r="1.8" fill="none" stroke="currentColor" strokeWidth="1.8" />
+          <circle cx="17.8" cy="17.2" r="1.8" fill="none" stroke="currentColor" strokeWidth="1.8" />
+        </svg>
+      );
+  }
+}
+
+function getPresenceIdentityLabel(participant: RoomPresence) {
+  if (participant.publicIdentityPlatform === 'instagram' || participant.publicIdentityPlatform === 'tiktok') {
+    return formatPlatformUsername(participant.publicIdentityUsername) ?? participant.displayName;
+  }
+
+  return 'Incognito';
+}
 
 export default function BackstagePage() {
   const params = useParams();
@@ -521,26 +573,68 @@ export default function BackstagePage() {
   }
 
   const selectedScript = scripts.find((s) => s.id === selectedScriptId);
-  const filteredScenes = selectedActId
-    ? scenes.filter((s) => s.act_id === selectedActId)
-    : scenes;
 
-  // All unique characters across loaded scenes
-  const allCharacters = Array.from(
-    new Set(scenes.flatMap((s) => (s.character_stats ?? []).map((c) => c.name)))
-  ).sort();
+  // Filter out empty placeholder scenes (no heading and no rehearsable content)
+  const isEmptyScene = (s: Scene) => {
+    const rehearsable = sceneLineBreakdowns[s.id]?.rehearsableLines ?? getSceneRehearsableLines(s);
+    return !s.scene_heading && rehearsable === 0;
+  };
+
+  const filteredScenes = (selectedActId
+    ? scenes.filter((s) => s.act_id === selectedActId)
+    : scenes
+  ).filter((s) => !isEmptyScene(s));
+
+  const getSceneDialogueLines = (scene: Scene, charStats = scene.character_stats ?? []) =>
+    charStats.reduce((sum, stat) => sum + stat.dialogue_chunks, 0);
+
+  const getSceneNarrationLines = (scene: Scene) => {
+    const breakdown = sceneLineBreakdowns[scene.id];
+    if (breakdown) return breakdown.narrationLines;
+
+    const rehearsableLines = getSceneRehearsableLines(scene);
+    return Math.max(0, rehearsableLines - getSceneDialogueLines(scene));
+  };
+
+  const getSelectedRoleLines = (scene: Scene, roleName: string) =>
+    roleName === 'Narrator'
+      ? getSceneNarrationLines(scene)
+      : getCharacterDialogueLines(scene.character_stats, roleName);
+
+  const browseRoleMap = new Map<string, number>();
+  for (const scene of scenes) {
+    for (const stat of scene.character_stats ?? []) {
+      browseRoleMap.set(stat.name, (browseRoleMap.get(stat.name) ?? 0) + stat.dialogue_chunks);
+    }
+
+    const narrationLines = getSceneNarrationLines(scene);
+    if (narrationLines > 0) {
+      browseRoleMap.set('Narrator', (browseRoleMap.get('Narrator') ?? 0) + narrationLines);
+    }
+  }
+
+  const browseRoles: BrowseRole[] = [...browseRoleMap.entries()]
+    .map(([name, lineCount]) => ({ name, lineCount }))
+    .sort((a, b) => b.lineCount - a.lineCount || a.name.localeCompare(b.name));
 
   // Filtered scenes for each pick sub-mode
   const getPickScenes = (): Scene[] => {
     if (pickMode === 'act-scene') return filteredScenes;
 
+    // All non-act-scene sub-modes also exclude empty placeholders
+    const validScenes = scenes.filter((s) => !isEmptyScene(s));
+
     if (pickMode === 'character' && selectedCharacter) {
-      return scenes
-        .filter((s) => s.unique_characters.includes(selectedCharacter))
+      return validScenes
+        .filter((s) => getSelectedRoleLines(s, selectedCharacter) > 0)
         .sort((a, b) => {
-          const aLines = getCharacterDialogueLines(a.character_stats, selectedCharacter);
-          const bLines = getCharacterDialogueLines(b.character_stats, selectedCharacter);
-          return bLines - aLines;
+          const aLines = getSelectedRoleLines(a, selectedCharacter);
+          const bLines = getSelectedRoleLines(b, selectedCharacter);
+          if (bLines !== aLines) return bLines - aLines;
+
+          const aTotal = sceneLineBreakdowns[a.id]?.rehearsableLines ?? getSceneRehearsableLines(a);
+          const bTotal = sceneLineBreakdowns[b.id]?.rehearsableLines ?? getSceneRehearsableLines(b);
+          return bTotal - aTotal;
         });
     }
 
@@ -551,7 +645,7 @@ export default function BackstagePage() {
         // 7+ matches any roll call with participants >= 7
         return rollCalls.filter((e) => e.participants >= 7).sort((a, b) => a.narrators - b.narrators)[0];
       };
-      return scenes
+      return validScenes
         .filter((s) => {
           const rollCalls = s.roll_calls as import('@/lib/types').RollCallEntry[] | undefined;
           return !!findEntry(rollCalls);
@@ -570,7 +664,7 @@ export default function BackstagePage() {
         moment: { maxDialoguePerChar: 12, maxRehearsable: 30 },
       };
       const t = thresholds[selectedLengthTier];
-      return scenes.filter((s) => {
+      return validScenes.filter((s) => {
         const maxDialogue = getMaxCharacterDialogueLines(s.character_stats);
         const rehearsableLines = sceneLineBreakdowns[s.id]?.rehearsableLines ?? getSceneRehearsableLines(s);
         return maxDialogue <= t.maxDialoguePerChar && rehearsableLines <= t.maxRehearsable;
@@ -626,7 +720,10 @@ export default function BackstagePage() {
               <div className={`w-2 h-2 rounded-full ${
                 stage === 'callsheet' && readyUsers.has(p.userId) ? 'bg-green-500' : 'bg-gold/50'
               }`} />
-              <span>{p.displayName}</span>
+              <span className="inline-flex items-center gap-1.5">
+                {getIdentityIcon(p.publicIdentityPlatform)}
+                <span>{getPresenceIdentityLabel(p)}</span>
+              </span>
               {p.userId === currentUserId && (
                 <span className="text-muted text-xs ml-1">(you)</span>
               )}
@@ -758,17 +855,17 @@ export default function BackstagePage() {
                   {/* By Character */}
                   {pickMode === 'character' && (
                     <div className="flex flex-wrap gap-2 mb-3">
-                      {allCharacters.map((name) => (
+                      {browseRoles.map((role) => (
                         <button
-                          key={name}
-                          onClick={() => { setSelectedCharacter(name); setSelectedSceneId(null); }}
+                          key={role.name}
+                          onClick={() => { setSelectedCharacter(role.name); setSelectedSceneId(null); }}
                           className={`px-3 py-1 rounded-lg text-xs border transition-colors ${
-                            selectedCharacter === name
+                            selectedCharacter === role.name
                               ? 'border-gold text-gold bg-gold/10'
                               : 'border-border text-muted hover:text-foreground'
                           }`}
                         >
-                          {name}
+                          {role.name} <span className="text-[10px] opacity-70">{role.lineCount}</span>
                         </button>
                       ))}
                     </div>
@@ -834,6 +931,7 @@ export default function BackstagePage() {
                       const dialogueLines = breakdown?.dialogueLines ?? charStats.reduce((sum, stat) => sum + stat.dialogue_chunks, 0);
                       const rehearsableLines = breakdown?.rehearsableLines ?? getSceneRehearsableLines(scene);
                       const narrationLines = breakdown?.narrationLines ?? Math.max(0, rehearsableLines - dialogueLines);
+                      const selectedRoleLines = selectedCharacter ? getSelectedRoleLines(scene, selectedCharacter) : 0;
                       const breakdownParts = [
                         dialogueLines > 0 ? `${dialogueLines} dialogue` : null,
                         narrationLines > 0 ? `${narrationLines} narration` : null,
@@ -868,8 +966,13 @@ export default function BackstagePage() {
                           <div className="mt-1 text-xs text-gold/70">
                             {pickMode === 'character' && selectedCharacter && (
                               <>
-                                {getCharacterDialogueLines(charStats, selectedCharacter)} lines for {selectedCharacter}
-                                <span className="text-muted ml-2">· {charCount} character{charCount !== 1 ? 's' : ''}</span>
+                                {selectedRoleLines} line{selectedRoleLines !== 1 ? 's' : ''} for {selectedCharacter}
+                                {charCount > 0 && (
+                                  <span className="text-muted ml-2">· {charCount} character{charCount !== 1 ? 's' : ''}</span>
+                                )}
+                                {narrationLines > 0 && selectedCharacter !== 'Narrator' && (
+                                  <span className="text-muted ml-2">· {narrationLines} narrator line{narrationLines !== 1 ? 's' : ''}</span>
+                                )}
                               </>
                             )}
                             {pickMode === 'group-size' && selectedGroupSize !== null && (() => {
@@ -977,6 +1080,14 @@ export default function BackstagePage() {
               </p>
               <p className="text-sm text-muted mt-1">{preview.sceneHeading}</p>
               <p className="text-xs text-muted mt-1">{preview.totalLines} rehearsable lines</p>
+              {(preview.characters.length > 0 || narrationCount > 0) && (
+                <p className="text-xs text-muted mt-1">
+                  {preview.characters.length > 0
+                    ? `${preview.characters.length} character${preview.characters.length !== 1 ? 's' : ''}`
+                    : 'narrator only'}
+                  {narrationCount > 0 ? ` · ${narrationCount} narrator line${narrationCount !== 1 ? 's' : ''}` : ''}
+                </p>
+              )}
             </div>
 
             {/* Your Roles */}
