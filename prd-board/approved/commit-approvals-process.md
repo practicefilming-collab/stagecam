@@ -16,8 +16,8 @@ for dir in prd-board/approved/*/; do
   commits_file="$dir/COMMITS.md"
   prd_file=$(ls "$dir"/*.md 2>/dev/null | grep -v COMMITS | grep -v APPROVED | head -1)
 
-  # Count committed phases
-  committed=$(grep -oE 'Phase [0-9]+' "$commits_file" 2>/dev/null | sort -u | wc -l)
+  # Count committed phases — only lines with a real git hash (7+ hex chars)
+  committed=$(grep -E '\| [a-f0-9]{7,} \|' "$commits_file" 2>/dev/null | grep -oE 'Phase [0-9]+' | sort -u | wc -l)
 
   # Count total phases from Section 7 (Implementation Order) table
   # Match rows under that heading — phases have scope/files/risk columns
@@ -29,7 +29,7 @@ for dir in prd-board/approved/*/; do
   if [ "$committed" -eq 0 ]; then
     echo "NOT STARTED: $prd (0/$total phases)"
   elif [ "$committed" -lt "$total" ]; then
-    done_phases=$(grep -oE 'Phase [0-9]+' "$commits_file" | sort -u | tr '\n' ',' | sed 's/,$//')
+    done_phases=$(grep -E '\| [a-f0-9]{7,} \|' "$commits_file" | grep -oE 'Phase [0-9]+' | sort -u | tr '\n' ',' | sed 's/,$//')
     echo "IN PROGRESS: $prd ($committed/$total phases done: $done_phases)"
   else
     echo "COMPLETE: $prd ($committed/$total phases)"
@@ -82,3 +82,19 @@ After each commit, append a row to the PRD's `COMMITS.md` table:
 ```
 
 Keep the table sorted chronologically (newest at bottom).
+
+## Step 6 — Mark Fully Committed PRDs
+
+When all phases in a PRD's COMMITS.md are filled in (every phase from the PRD's Section 7 has at least one commit hash), prefix the folder name with `COMMITTED-`:
+
+```
+prd-board/approved/PRD-stats-me-2026-03-09_1830/
+  → prd-board/approved/COMMITTED-PRD-stats-me-2026-03-09_1830/
+```
+
+This makes it easy to scan the `approved/` directory and see at a glance which PRDs still have outstanding work:
+
+- **No prefix** — implementation in progress or not started
+- **`COMMITTED-` prefix** — all phases shipped
+
+The check from Step 1 still works on `COMMITTED-` folders (the inner files are unchanged), so historical traceability is preserved.
