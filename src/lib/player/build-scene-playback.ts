@@ -93,10 +93,11 @@ export async function buildScenePlaybackData(
     .eq('room_id', recordingRows[0]?.room_id ?? '');
 
   const lineAssignmentMap = new Map<string, string>();
-  for (const rp of (roomParticipants ?? []) as Array<{ user_id: string; assigned_chunks: { chunk_id: string }[] | null }>) {
+  for (const rp of (roomParticipants ?? []) as Array<{ user_id: string; assigned_chunks: { chunk_id?: string; line_id?: string }[] | null }>) {
     const assigned = rp.assigned_chunks ?? [];
     for (const a of assigned) {
-      lineAssignmentMap.set(a.chunk_id, rp.user_id);
+      const id = a.line_id ?? a.chunk_id;
+      if (id) lineAssignmentMap.set(id, rp.user_id);
     }
   }
 

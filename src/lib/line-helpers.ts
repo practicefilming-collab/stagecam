@@ -40,7 +40,7 @@ export function getLineText(line: Pick<Line, 'tts_text' | 'chunk_text'>): string
 
 export function mapStoredAssignmentToLine(assignment: AssignedChunk): AssignedLine {
   return {
-    line_id: assignment.chunk_id,
+    line_id: assignment.line_id ?? assignment.chunk_id ?? '',
     role: assignment.role,
     character: assignment.character,
   };

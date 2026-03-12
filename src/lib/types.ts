@@ -101,7 +101,8 @@ export interface AssignedLine {
 }
 
 export interface AssignedChunk {
-  chunk_id: string;
+  chunk_id?: string;  // old sessions
+  line_id?: string;   // new sessions (post-7f834a2)
   role: LineType;
   character?: string;
 }
