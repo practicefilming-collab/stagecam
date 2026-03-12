@@ -25,6 +25,7 @@
 *.pem
 .claude/
 supabase/.temp/
+pm/
 
 # debug
 npm-debug.log*
