@@ -57,13 +57,13 @@ export default function HistoryPage() {
             const inner = (
               <>
                 <h3 className={`font-semibold mb-1 ${hasScene ? 'group-hover:text-gold' : ''} transition-colors`}>
-                  {room.scripts.title}
+                  {room.scripts?.title ?? 'Untitled'}
                 </h3>
                 {room.scenes?.scene_heading && (
                   <p className="text-xs text-gold/60 mb-1 truncate">{room.scenes.scene_heading}</p>
                 )}
                 <p className="text-xs text-muted mb-3">
-                  {room.scripts.year} &middot; {new Date(room.created_at).toLocaleDateString()}
+                  {room.scripts?.year ? `${room.scripts.year} \u00b7 ` : ''}{new Date(room.created_at).toLocaleDateString()}
                   {room.recording_count > 0 && (
                     <span className="ml-2 text-gold/80">{room.recording_count} rec{room.recording_count !== 1 ? 's' : ''}</span>
                   )}
