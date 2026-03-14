@@ -6,11 +6,13 @@ The question is not "is this PRD good?" but "does this PRD fit with what's been 
 
 ## What the Reviewer Checks
 
-The reviewer reads three things before producing a verdict:
+The reviewer reads these sources before producing a verdict:
 
 1. **Recent git commit history** — what has actually shipped (last ~20 commits)
 2. **The requests queue** — what other PRDs are waiting in `requests/`
 3. **The PRD under review** — what it proposes to change
+4. **Approved PRDs** — what's been approved, which phases are complete or in progress
+5. **PM check-in logs** (if available) — the most recent check-in from `pm/logs/` provides structured WIP context: local changes mapped to PRDs, orphan commits, stalled phases, and priority assessment
 
 ## Alignment Dimensions
 
@@ -44,7 +46,7 @@ Create `APPROVED.md` inside the PRD folder with:
 - Any conditions, scope adjustments, or phasing notes
 - Summary of what was approved
 
-Then move the PRD folder to `approved/`. Create `COMMITS.md` inside the folder to track implementation.
+Then move the PRD folder to `approved/`. Create `PUSHES.md` inside the folder to track implementation.
 
 ### If denied:
 

@@ -1,6 +1,6 @@
-# Implementation Commits
+# Implementation Pushes
 
-Tracks every commit that implements PRD-stats-me-2026-03-09_1830.
+Tracks every pushed commit that implements PRD-stats-me-2026-03-09_1830.
 
 | Hash | Message | PRD Phase |
 |------|---------|-----------|

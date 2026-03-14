@@ -23,8 +23,8 @@ There is no existing PM check-in system. The current oversight relies on:
 
 1. **Manual `git status`/`git log`** — ad-hoc, no structure
 2. **PRD board review process** — checks recent commits and queue during review, but only when a PRD is actively in review
-3. **`COMMITS.md` tracking** — tracks implementation progress per approved PRD, but only updated manually
-4. **Commit-approvals process** — bash script to scan for incomplete phases, but must be run manually
+3. **`PUSHES.md` tracking** — tracks implementation progress per approved PRD, but only updated manually
+4. **Push-approvals process** — bash script to scan for incomplete phases, but must be run manually
 
 No automated, periodic assessment of project state exists.
 
@@ -69,7 +69,7 @@ Claude runs in read-only plan mode and produces an 8-section structured report:
 
 **Section 2 — Unpushed Commits.** `git log origin/master..HEAD`. For each: hash, message, files touched, which approved PRD phase it fulfills, whether to push as-is/amend/hold.
 
-**Section 2b — Orphan Commit Audit.** Scans last 20 commits (pushed and unpushed), cross-references against every `COMMITS.md` in `prd-board/approved/` and commit messages for `PRD:` lines. Any commit appearing in neither is an orphan. Pushed orphans are highest priority — already in shared history without traceability. Unpushed orphans get amend advice. For all orphans, Claude considers PRD queue state before recommending new PRD creation.
+**Section 2b — Orphan Commit Audit.** Scans last 20 commits (pushed and unpushed), cross-references against every `PUSHES.md` in `prd-board/approved/` and commit messages for `PRD:` lines. Any commit appearing in neither is an orphan. Pushed orphans are highest priority — already in shared history without traceability. Unpushed orphans get amend advice. For all orphans, Claude considers PRD queue state before recommending new PRD creation.
 
 **Section 3 — PRD Board Snapshot.** What's in review (and how long), which approved PRDs have unfinished phases (which phase is next), how many fully committed, what's queued in `requests/` with age of each.
 

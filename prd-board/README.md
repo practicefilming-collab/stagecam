@@ -6,13 +6,30 @@ Intake and processing system for product requirement documents. PRDs originate f
 
 ### 1. Research (`redev/`)
 
+Research is organized into two domains:
+
+- **`redev/website/`** — website page research (screenshots, UI analysis, page-level PRDs)
+- **`redev/system/`** — infrastructure and tooling research (automation, processes, developer workflows)
+
+#### Website research sessions
+
 Each page gets a dedicated research session:
 
 ```
-redev/{page}/{YYYY-MM-DD_HHMM}/
+redev/website/{page}/{YYYY-MM-DD_HHMM}/
   ├── screenshot.jpeg          ← snapshot of the page's current state
   ├── critical-analysis.md     ← critique, issues ranked by severity
   └── PRD-{page}-{date}.md    ← if approved for work, a full PRD is written
+```
+
+#### System research sessions
+
+Each topic gets a dedicated research session:
+
+```
+redev/system/{topic}-{YYYY-MM-DD_HHMM}/
+  ├── critical-analysis.md     ← evaluation of the problem and proposed solution
+  └── PRD-system-{topic}-{date}.md  ← if approved for work, a full PRD is written
 ```
 
 The session folder stays in `redev/` permanently as the source-of-truth research artifact.
@@ -35,7 +52,7 @@ prd-board/
 │   └── PRD-example-2026-03-01_1200/
 │       ├── PRD-example-2026-03-01_1200.md
 │       ├── APPROVED.md
-│       └── COMMITS.md
+│       └── PUSHES.md
 └── denied/
     └── PRD-example-2026-02-15_0900/
         ├── PRD-example-2026-02-15_0900.md
@@ -57,10 +74,11 @@ PRD-{page}-{YYYY-MM-DD_HHMM}/
   └── PRD-{page}-{YYYY-MM-DD_HHMM}.md
 ```
 
-- `{page}` — the page path with slashes replaced by dashes (e.g., `stats-me`)
+- **Website PRDs**: `{page}` is the page path with slashes replaced by dashes (e.g., `stats-me`). Traces back to `redev/website/{page}/{date}/`.
+- **System PRDs**: `{page}` is `system-{topic}` (e.g., `system-pm-checkin`). Traces back to `redev/system/{topic}-{date}/`.
 - `{YYYY-MM-DD_HHMM}` — timestamp of the redev session it originated from
 
-This naming enables FIFO sort and traces every PRD back to its source: `redev/{page}/{date}/`.
+This naming enables FIFO sort and traces every PRD back to its source.
 
 ### In review
 
@@ -79,7 +97,7 @@ See `in-review/review.md` for the full process.
 
 1. Create `APPROVED.md` inside the PRD folder with UTC timestamp, approval summary, and any conditions.
 2. Move the PRD folder from `in-review/` to `approved/`.
-3. Create `COMMITS.md` inside the folder to track every commit that implements the PRD — hash, message, and what part of the PRD it addresses. Updated as implementation progresses.
+3. Create `PUSHES.md` inside the folder to track every pushed commit that implements the PRD — hash, message, and what part of the PRD it addresses. Updated as implementation progresses.
 4. Update the entry in `in-review/review-log.md`.
 
 ### On denial
@@ -93,11 +111,18 @@ See `in-review/review.md` for the full process.
 Every PRD folder name maps directly back to its research session:
 
 ```
+# Website PRD
 prd-board/requests/PRD-stats-me-2026-03-09_1830/
-  → redev/stats/me/2026-03-09_1830/
+  → redev/website/stats/me/2026-03-09_1830/
       ├── screenshot.jpeg
       ├── critical-analysis.md
       └── PRD-stats-me-2026-03-09_1830.md  (original)
+
+# System PRD
+prd-board/requests/PRD-system-pm-checkin-2026-03-11_0300/
+  → redev/system/pm-checkin-2026-03-11_0300/
+      ├── critical-analysis.md
+      └── PRD-system-pm-checkin-2026-03-11_0300.md  (original)
 ```
 
 The `redev/` copy is the research artifact. The `prd-board/` copy is the operational document that moves through the review pipeline.

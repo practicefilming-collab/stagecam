@@ -1,6 +1,6 @@
-# Implementation Commits — PRD-stage-roomCode-2026-03-09_2117
+# Implementation Pushes — PRD-stage-roomCode-2026-03-09_2117
 
-Tracks every commit that implements this PRD.
+Tracks every pushed commit that implements this PRD.
 
 ---
 
