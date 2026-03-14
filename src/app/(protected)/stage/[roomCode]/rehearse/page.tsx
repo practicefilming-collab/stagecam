@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useMediaDevices } from '@/hooks/use-media-devices';
 import { useRecording } from '@/hooks/use-recording';
 import { getLineText, mapStoredAssignmentsToLines } from '@/lib/line-helpers';
+import { useMontageOverlay } from '@/components/rehearsal/montage-overlay-provider';
 import type { Line, AssignedLine, AssignedChunk, Room, Script } from '@/lib/types';
 
 export default function RehearsePage() {
@@ -16,6 +17,7 @@ export default function RehearsePage() {
 
   const { stream, error: mediaError, hasPermission, videoRef, requestPermission } = useMediaDevices();
   const { state: recState, blob, previewUrl, duration, mimeType, startRecording, stopRecording, reset } = useRecording();
+  const { updateLines, dismissMontage } = useMontageOverlay();
 
   const [room, setRoom] = useState<Room | null>(null);
   const [script, setScript] = useState<Script | null>(null);
@@ -71,18 +73,28 @@ export default function RehearsePage() {
           .in('id', lineIds)
           .order('chunk_index');
         setLines(lineData ?? []);
+        updateLines(lineData ?? [], assigned);
       }
 
       setLoading(false);
     }
     void load();
-  }, [roomCode, router, supabase]);
+  }, [roomCode, router, supabase, updateLines]);
 
   useEffect(() => {
     if (!hasPermission) {
       requestPermission();
     }
   }, [hasPermission, requestPermission]);
+
+  const cameraSettled = !!stream || !!mediaError;
+
+  // Dismiss montage overlay when data loaded and camera settled
+  useEffect(() => {
+    if (!loading && cameraSettled) {
+      dismissMontage();
+    }
+  }, [loading, cameraSettled, dismissMontage]);
 
   const currentLine = lines[currentLineIdx] ?? null;
   const currentAssignment = assignedLines.find(
@@ -164,15 +176,7 @@ export default function RehearsePage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)]">
-        <p className="text-muted">Loading rehearsal...</p>
-      </div>
-    );
-  }
-
-  if (lines.length === 0) {
+  if (!loading && lines.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-3.5rem)] text-center px-4">
         <p className="text-muted text-lg mb-4">No lines assigned to you for this session.</p>

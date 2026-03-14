@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useMontageOverlay } from '@/components/rehearsal/montage-overlay-provider';
 
 interface ActProgress {
   actNumber: number;
@@ -33,6 +34,7 @@ interface UnrecordedScene {
 
 export default function RoleCall({ characters, grouped }: { characters: CharacterCard[]; grouped?: boolean }) {
   const router = useRouter();
+  const { showMontage, dismissMontage } = useMontageOverlay();
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [unrecordedScenes, setUnrecordedScenes] = useState<UnrecordedScene[]>([]);
   const [loadingUnrecorded, setLoadingUnrecorded] = useState(false);
@@ -74,6 +76,7 @@ export default function RoleCall({ characters, grouped }: { characters: Characte
 
   const handleContinue = async (char: CharacterCard, scene: UnrecordedScene) => {
     const sceneKey = `${scene.sceneId}`;
+    showMontage(char.scriptTitle);
     setCreatingRoom(sceneKey);
     setRoomError(null);
 
@@ -90,6 +93,7 @@ export default function RoleCall({ characters, grouped }: { characters: Characte
 
       if (!res.ok) {
         setRoomError(sceneKey);
+        dismissMontage();
         return;
       }
 
@@ -97,6 +101,8 @@ export default function RoleCall({ characters, grouped }: { characters: Characte
       router.push(
         `/stage/${room.room_code}?character=${encodeURIComponent(char.character)}&autoStart=1`
       );
+    } catch {
+      dismissMontage();
     } finally {
       setCreatingRoom(null);
     }

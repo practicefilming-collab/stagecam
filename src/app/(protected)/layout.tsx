@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { isPublicIdentityComplete } from '@/lib/auth/identity';
 import { redirect } from 'next/navigation';
 import { Header } from '@/components/layout/header';
+import { MontageOverlayProvider } from '@/components/rehearsal/montage-overlay-provider';
 
 export default async function ProtectedLayout({
   children,
@@ -32,9 +33,11 @@ export default async function ProtectedLayout({
   return (
     <div className="min-h-screen flex flex-col">
       <Header profile={profile} />
-      <main className="flex-1">
-        {children}
-      </main>
+      <MontageOverlayProvider>
+        <main className="flex-1">
+          {children}
+        </main>
+      </MontageOverlayProvider>
     </div>
   );
 }
