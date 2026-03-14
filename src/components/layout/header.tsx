@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { getProfileDisplayName, getProfileIdentityLine } from '@/lib/auth/identity';
+import { getPublicIdentitySummary } from '@/lib/auth/identity';
+import { PublicIdentityInline } from '@/components/auth/public-identity-inline';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -27,7 +28,7 @@ export function Header({ profile }: { profile: Profile }) {
   ];
 
   const close = () => setOpen(false);
-  const identityLine = getProfileIdentityLine(profile);
+  const identity = getPublicIdentitySummary(profile);
 
   return (
     <header className="border-b border-border bg-surface/50 backdrop-blur-sm sticky top-0 z-50">
@@ -67,9 +68,12 @@ export function Header({ profile }: { profile: Profile }) {
           ))}
 
           <div className="border-t border-border mt-2 pt-2 flex items-center justify-between gap-3 px-3 py-2">
-            <div className="min-w-0">
-              <p className="text-xs text-foreground truncate">{getProfileDisplayName(profile)}</p>
-              <p className="text-[11px] text-muted truncate">{identityLine}</p>
+            <div className="min-w-0 flex-1">
+              <PublicIdentityInline
+                platform={identity.platform}
+                label={identity.displayName}
+                className="text-xs text-foreground"
+              />
             </div>
             <button
               onClick={() => { close(); signOut(); }}
