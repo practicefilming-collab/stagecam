@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { formatPlatformUsername } from '@/lib/auth/identity';
 import { createClient } from '@/lib/supabase/client';
@@ -12,7 +12,7 @@ import {
   getScriptTotalLines,
   summarizeCharacterDialogueLines,
 } from '@/lib/line-helpers';
-import type { Room, Script, Act, Scene, RoomPresence, PublicIdentityPlatform, RollCallEntry } from '@/lib/types';
+import type { Room, Script, Act, Scene, RoomPresence, PublicIdentityPlatform } from '@/lib/types';
 
 interface CallSheetEntry {
   userId: string;
@@ -54,7 +54,8 @@ interface RoleClaim {
 interface SceneLineBreakdown {
   rehearsableLines: number;
   dialogueLines: number;
-  narrationLines: number;
+  actionLines: number;
+  directionLines: number;
 }
 
 type Stage = 'script' | 'scene' | 'callsheet';
@@ -105,22 +106,6 @@ function getPresenceIdentityLabel(participant: RoomPresence) {
   return 'Incognito';
 }
 
-function getRollCallEntryForParticipants(
-  scene: Scene,
-  participantCount: number
-): RollCallEntry | undefined {
-  const rollCalls = scene.roll_calls as RollCallEntry[] | undefined;
-  if (!rollCalls || participantCount < 1) return undefined;
-
-  if (participantCount < 7) {
-    return rollCalls.find((entry) => entry.participants === participantCount);
-  }
-
-  return rollCalls
-    .filter((entry) => entry.participants >= participantCount)
-    .sort((a, b) => a.narrators - b.narrators)[0];
-}
-
 export default function BackstagePage() {
   const params = useParams();
   const roomCode = params.roomCode as string;
@@ -150,6 +135,7 @@ export default function BackstagePage() {
   const [selectedCharacter, setSelectedCharacter] = useState<string | null>(null);
   const [selectedGroupSize, setSelectedGroupSize] = useState<number | null>(null);
   const [selectedLengthTier, setSelectedLengthTier] = useState<'spark' | 'beat' | 'moment' | null>(null);
+  const sceneListRef = useRef<HTMLDivElement>(null);
 
   // Call sheet
   const [preview, setPreview] = useState<PreviewData | null>(null);
@@ -231,24 +217,27 @@ export default function BackstagePage() {
         .in('scene_id', sceneIds);
 
       const breakdowns: Record<string, SceneLineBreakdown> = {};
-      for (const scene of nextScenes) {
-        breakdowns[scene.id] = {
-          rehearsableLines: 0,
-          dialogueLines: 0,
-          narrationLines: 0,
-        };
-      }
 
       for (const chunk of chunkRows ?? []) {
+        if (!breakdowns[chunk.scene_id]) {
+          breakdowns[chunk.scene_id] = {
+            rehearsableLines: 0,
+            dialogueLines: 0,
+            actionLines: 0,
+            directionLines: 0,
+          };
+        }
         const breakdown = breakdowns[chunk.scene_id];
-        if (!breakdown || chunk.is_system) continue;
 
-        breakdown.rehearsableLines += 1;
-
-        if (chunk.type === 'dialogue' && chunk.character) {
-          breakdown.dialogueLines += 1;
+        if (chunk.is_system) {
+          breakdown.directionLines += 1;
         } else {
-          breakdown.narrationLines += 1;
+          breakdown.rehearsableLines += 1;
+          if (chunk.type === 'dialogue' && chunk.character) {
+            breakdown.dialogueLines += 1;
+          } else {
+            breakdown.actionLines += 1;
+          }
         }
       }
 
@@ -626,7 +615,7 @@ export default function BackstagePage() {
 
   const getSceneNarrationLines = (scene: Scene) => {
     const breakdown = sceneLineBreakdowns[scene.id];
-    if (breakdown) return breakdown.narrationLines;
+    if (breakdown) return breakdown.actionLines;
 
     const rehearsableLines = getSceneRehearsableLines(scene);
     return Math.max(0, rehearsableLines - getSceneDialogueLines(scene));
@@ -653,6 +642,13 @@ export default function BackstagePage() {
     .map(([name, lineCount]) => ({ name, lineCount }))
     .sort((a, b) => b.lineCount - a.lineCount || a.name.localeCompare(b.name));
 
+  const classifyLengthTier = (maxDialogue: number, rehearsableLines: number): 'spark' | 'beat' | 'moment' | null => {
+    if (maxDialogue <= 2 && rehearsableLines <= 6) return 'spark';
+    if (maxDialogue <= 5 && rehearsableLines <= 15) return 'beat';
+    if (maxDialogue <= 12 && rehearsableLines <= 30) return 'moment';
+    return null;
+  };
+
   // Filtered scenes for each pick sub-mode
   const getPickScenes = (): Scene[] => {
     if (pickMode === 'act-scene') return filteredScenes;
@@ -666,15 +662,7 @@ export default function BackstagePage() {
     if (pickMode === 'character' && selectedCharacter) {
       return validScenes
         .filter((s) => getSelectedRoleLines(s, selectedCharacter) > 0)
-        .sort((a, b) => {
-          const aLines = getSelectedRoleLines(a, selectedCharacter);
-          const bLines = getSelectedRoleLines(b, selectedCharacter);
-          if (bLines !== aLines) return bLines - aLines;
-
-          const aTotal = sceneLineBreakdowns[a.id]?.rehearsableLines ?? getSceneRehearsableLines(a);
-          const bTotal = sceneLineBreakdowns[b.id]?.rehearsableLines ?? getSceneRehearsableLines(b);
-          return bTotal - aTotal;
-        });
+        .sort((a, b) => a.scene_number - b.scene_number);
     }
 
     if (pickMode === 'group-size' && selectedGroupSize !== null) {
@@ -692,22 +680,31 @@ export default function BackstagePage() {
         .sort((a, b) => {
           const aEntry = findEntry(a.roll_calls as import('@/lib/types').RollCallEntry[] | undefined);
           const bEntry = findEntry(b.roll_calls as import('@/lib/types').RollCallEntry[] | undefined);
-          return (aEntry?.narrators ?? 99) - (bEntry?.narrators ?? 99);
+          // Primary: fewer narrators = better character fit for the group
+          const narratorDiff = (aEntry?.narrators ?? 99) - (bEntry?.narrators ?? 99);
+          if (narratorDiff !== 0) return narratorDiff;
+          // Secondary: scene character count closest to group size ranks higher
+          const aDist = Math.abs((a.unique_characters?.length ?? 0) - selectedGroupSize);
+          const bDist = Math.abs((b.unique_characters?.length ?? 0) - selectedGroupSize);
+          const distDiff = aDist - bDist;
+          if (distDiff !== 0) return distDiff;
+          // Tertiary: more action lines per narrator = narrator has more to do
+          return (bEntry?.actionsPerNarrator ?? 0) - (aEntry?.actionsPerNarrator ?? 0);
         });
     }
 
     if (pickMode === 'length' && selectedLengthTier) {
-      const thresholds = {
-        spark: { maxDialoguePerChar: 2, maxRehearsable: 6 },
-        beat: { maxDialoguePerChar: 5, maxRehearsable: 15 },
-        moment: { maxDialoguePerChar: 12, maxRehearsable: 30 },
-      };
-      const t = thresholds[selectedLengthTier];
-      return validScenes.filter((s) => {
-        const maxDialogue = getMaxCharacterDialogueLines(s.character_stats);
-        const rehearsableLines = sceneLineBreakdowns[s.id]?.rehearsableLines ?? getSceneRehearsableLines(s);
-        return maxDialogue <= t.maxDialoguePerChar && rehearsableLines <= t.maxRehearsable;
-      });
+      return validScenes
+        .filter((s) => {
+          const maxDialogue = getMaxCharacterDialogueLines(s.character_stats);
+          const rehearsableLines = sceneLineBreakdowns[s.id]?.rehearsableLines ?? getSceneRehearsableLines(s);
+          return classifyLengthTier(maxDialogue, rehearsableLines) === selectedLengthTier;
+        })
+        .sort((a, b) => {
+          const aLines = sceneLineBreakdowns[a.id]?.rehearsableLines ?? getSceneRehearsableLines(a);
+          const bLines = sceneLineBreakdowns[b.id]?.rehearsableLines ?? getSceneRehearsableLines(b);
+          return aLines - bLines;
+        });
     }
 
     return [];
@@ -897,7 +894,7 @@ export default function BackstagePage() {
                       {browseRoles.map((role) => (
                         <button
                           key={role.name}
-                          onClick={() => { setSelectedCharacter(role.name); setSelectedSceneId(null); }}
+                          onClick={() => { setSelectedCharacter(role.name); setSelectedSceneId(null); setTimeout(() => sceneListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 0); }}
                           className={`px-3 py-1 rounded-lg text-xs border transition-colors ${
                             selectedCharacter === role.name
                               ? 'border-gold text-gold bg-gold/10'
@@ -954,7 +951,7 @@ export default function BackstagePage() {
                   )}
 
                   {/* Scene list */}
-                  <div className="max-h-72 overflow-y-auto space-y-1 mb-4">
+                  <div ref={sceneListRef} className="max-h-72 overflow-y-auto space-y-1 mb-4">
                     {pickScenes.length === 0 && (
                       <p className="text-muted text-sm text-center py-4">
                         {!sceneLineBreakdownsLoaded && pickMode !== 'act-scene' ? 'Loading scenes...' :
@@ -969,12 +966,13 @@ export default function BackstagePage() {
                       const charCount = scene.unique_characters.length;
                       const breakdown = sceneLineBreakdowns[scene.id];
                       const dialogueLines = breakdown?.dialogueLines ?? charStats.reduce((sum, stat) => sum + stat.dialogue_chunks, 0);
-                      const rehearsableLines = breakdown?.rehearsableLines ?? getSceneRehearsableLines(scene);
-                      const narrationLines = breakdown?.narrationLines ?? Math.max(0, rehearsableLines - dialogueLines);
-                      const selectedRoleLines = selectedCharacter ? getSelectedRoleLines(scene, selectedCharacter) : 0;
+                      const actionLines = breakdown?.actionLines ?? Math.max(0, (scene.rehearsable_chunks ?? 0) - dialogueLines);
+                      const directionLines = breakdown?.directionLines ?? Math.max(0, scene.total_chunks - (scene.rehearsable_chunks ?? scene.total_chunks));
+                      const totalLines = dialogueLines + actionLines + directionLines;
                       const breakdownParts = [
                         dialogueLines > 0 ? `${dialogueLines} dialogue` : null,
-                        narrationLines > 0 ? `${narrationLines} narration` : null,
+                        actionLines > 0 ? `${actionLines} action` : null,
+                        directionLines > 0 ? `${directionLines} direction` : null,
                       ].filter(Boolean);
                       return (
                         <button
@@ -995,82 +993,24 @@ export default function BackstagePage() {
                               <span className="text-foreground">{scene.scene_heading || 'Untitled'}</span>
                             </div>
                             <span className="text-muted text-xs ml-2">
-                              {rehearsableLines} {rehearsableLines === 1 ? 'line' : 'lines'}
+                              {totalLines} {totalLines === 1 ? 'line' : 'lines'}
                             </span>
                           </div>
                           <div className="mt-1 text-[11px] text-muted">
-                            {breakdownParts.length > 0 ? breakdownParts.join(' + ') : '0 rehearsable lines'}
+                            {breakdownParts.length > 0 ? breakdownParts.join(' + ') : '0 lines'}
                           </div>
 
-                          {/* Context row varies by sub-mode */}
+                          {/* Character summary — consistent across all sub-modes */}
                           <div className="mt-1 text-xs text-gold/70">
-                            {pickMode === 'character' && selectedCharacter && (
+                            {charCount > 0 ? (
                               <>
-                                {selectedRoleLines} line{selectedRoleLines !== 1 ? 's' : ''} for {selectedCharacter}
-                                {charCount > 0 && (
-                                  <span className="text-muted ml-2">· {charCount} character{charCount !== 1 ? 's' : ''}</span>
-                                )}
-                                {narrationLines > 0 && selectedCharacter !== 'Narrator' && (
-                                  <span className="text-muted ml-2">· {narrationLines} narrator line{narrationLines !== 1 ? 's' : ''}</span>
-                                )}
+                                {charCount} character{charCount !== 1 ? 's' : ''}
+                                <span className="text-muted ml-2">
+                                  · {summarizeCharacterDialogueLines(charStats)}
+                                </span>
                               </>
-                            )}
-                            {pickMode === 'group-size' && selectedGroupSize !== null && (() => {
-                              const rollCalls = scene.roll_calls as import('@/lib/types').RollCallEntry[] | undefined;
-                              const entry = selectedGroupSize < 7
-                                ? rollCalls?.find((e) => e.participants === selectedGroupSize)
-                                : rollCalls?.filter((e) => e.participants >= 7).sort((a, b) => a.narrators - b.narrators)[0];
-                              return entry ? (
-                                <>
-                                  {entry.characters} speaking
-                                  {entry.narrators > 0 ? (
-                                    <> · {entry.narrators} narrator{entry.narrators !== 1 ? 's' : ''}</>
-                                  ) : (
-                                    <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gold/20 text-gold border border-gold/30">
-                                      perfect fit
-                                    </span>
-                                  )}
-                                </>
-                              ) : null;
-                            })()}
-                            {pickMode === 'length' && (
-                              (() => {
-                                const participantEntry = getRollCallEntryForParticipants(scene, participants.length);
-
-                                if (participantEntry) {
-                                  return (
-                                    <>
-                                      {participantEntry.participants} participant{participantEntry.participants !== 1 ? 's' : ''}
-                                      <span className="text-muted ml-2">
-                                        · {participantEntry.characters} speaking
-                                      </span>
-                                      {participantEntry.narrators > 0 && (
-                                        <span className="text-muted ml-2">
-                                          · {participantEntry.narrators} narrator{participantEntry.narrators !== 1 ? 's' : ''}
-                                        </span>
-                                      )}
-                                    </>
-                                  );
-                                }
-
-                                if (charStats.length === 0) {
-                                  return <>narrator only</>;
-                                }
-
-                                return (
-                                  <>
-                                    {charCount} character{charCount !== 1 ? 's' : ''}
-                                    <span className="text-muted ml-2">
-                                      · {summarizeCharacterDialogueLines(charStats)}
-                                    </span>
-                                  </>
-                                );
-                              })()
-                            )}
-                            {pickMode === 'act-scene' && (
-                              charStats.length > 0
-                                ? charStats.map((c) => c.name).join(', ')
-                                : scene.unique_characters.join(', ')
+                            ) : (
+                              <span className="text-muted">narrator only</span>
                             )}
                           </div>
                         </button>

@@ -3,19 +3,17 @@ import matter from 'gray-matter';
 import type { ParsedChunk } from '../../src/lib/types';
 
 export function parseChunkedScript(filePath: string): ParsedChunk[] {
-  const content = fs.readFileSync(filePath, 'utf-8');
+  const raw = fs.readFileSync(filePath, 'utf-8');
+  const content = raw.replace(/\r\n/g, '\n'); // normalize Windows line endings
   const chunks: ParsedChunk[] = [];
 
-  // Split by --- delimiters (YAML frontmatter blocks)
-  const sections = content.split(/\n---\n/);
+  // Match each frontmatter block: ---\nyaml\n---\ncontent
+  const blockRegex = /---\n([\s\S]*?)\n---\n([\s\S]*?)(?=\n---\n|$)/g;
+  let match;
 
-  for (let i = 0; i < sections.length; i++) {
-    const section = sections[i].trim();
-    if (!section) continue;
-
-    // Try to parse as YAML frontmatter + content
+  while ((match = blockRegex.exec(content)) !== null) {
     try {
-      const parsed = matter(`---\n${section}\n---`);
+      const parsed = matter(`---\n${match[1]}\n---\n${match[2]}`);
       const data = parsed.data;
 
       if (!data.script || !data.chunk_index) continue;

@@ -1,4 +1,4 @@
-/** Seeds Supabase from pipeline markdown files. Computes is_system, performable_chunks, character_stats at insert time. */
+/** Seeds Supabase from pipeline markdown files. Computes is_system, rehearsable_chunks, character_stats at insert time. */
 import * as fs from 'fs';
 import * as path from 'path';
 import { createClient } from '@supabase/supabase-js';
@@ -203,7 +203,7 @@ async function seedScript(filename: string) {
           scene_number: sceneNum,
           scene_heading: heading,
           total_chunks: sceneChunks.length,
-          performable_chunks: performableChunks,
+          rehearsable_chunks: performableChunks,
           unique_characters: uniqueCharacters,
           character_stats: characterStats,
           roll_calls: rollCalls,
@@ -252,9 +252,19 @@ async function main() {
     .filter((f) => f.endsWith('.md'))
     .sort();
 
-  console.log(`Found ${files.length} scripts to seed\n`);
+  // Optional CLI filter: npx tsx supabase/seed/seed.ts "Toy Story"
+  const filter = process.argv[2]?.toLowerCase();
+  const filtered = filter
+    ? files.filter((f) => f.toLowerCase().includes(filter))
+    : files;
 
-  for (const file of files) {
+  if (filter) {
+    console.log(`Filter: "${process.argv[2]}" — matched ${filtered.length} of ${files.length} scripts\n`);
+  } else {
+    console.log(`Found ${files.length} scripts to seed\n`);
+  }
+
+  for (const file of filtered) {
     await seedScript(file);
   }
 
