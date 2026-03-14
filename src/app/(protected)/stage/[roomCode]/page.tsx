@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { formatPlatformUsername } from '@/lib/auth/identity';
 import { createClient } from '@/lib/supabase/client';
 import { usePresence } from '@/hooks/use-presence';
@@ -110,7 +110,11 @@ export default function BackstagePage() {
   const params = useParams();
   const roomCode = params.roomCode as string;
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
+  const autoAdvanceCharacter = searchParams.get('character');
+  const autoStart = searchParams.get('autoStart') === '1';
+  const autoAdvancedRef = useRef(false);
 
   const [room, setRoom] = useState<Room | null>(null);
   const [isCreator, setIsCreator] = useState(false);
@@ -183,6 +187,79 @@ export default function BackstagePage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preview, participants.length]);
+
+  // Auto-advance: once loadRoom sets selectedSceneId via autoAdvance, trigger confirmScene
+  const autoConfirmFiredRef = useRef(false);
+  useEffect(() => {
+    if (
+      autoAdvancedRef.current &&
+      !autoConfirmFiredRef.current &&
+      selectedSceneId &&
+      room &&
+      stage === 'scene'
+    ) {
+      autoConfirmFiredRef.current = true;
+      void confirmScene();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSceneId, room, stage]);
+
+  // Auto-advance: claim the character from URL params once preview loads
+  const autoClaimFiredRef = useRef(false);
+  useEffect(() => {
+    if (
+      autoAdvanceCharacter &&
+      autoAdvancedRef.current &&
+      preview &&
+      !autoClaimFiredRef.current &&
+      currentUserId &&
+      stage === 'callsheet'
+    ) {
+      const matchingChar = preview.characters.find(
+        (c) => c.name === autoAdvanceCharacter
+      );
+      if (matchingChar && !roleClaims.has(matchingChar.name)) {
+        autoClaimFiredRef.current = true;
+        void claimRole(matchingChar.name);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preview, currentUserId, stage, autoAdvanceCharacter]);
+
+  // Auto-advance: mark ready and start once role is claimed
+  const autoStartFiredRef = useRef(false);
+  useEffect(() => {
+    if (
+      autoStart &&
+      autoClaimFiredRef.current &&
+      !autoStartFiredRef.current &&
+      autoAdvanceCharacter &&
+      roleClaims.has(autoAdvanceCharacter) &&
+      roleClaims.get(autoAdvanceCharacter)?.userId === currentUserId &&
+      !isReady
+    ) {
+      autoStartFiredRef.current = true;
+      void markReady();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roleClaims, currentUserId, isReady, autoStart, autoAdvanceCharacter]);
+
+  // Auto-advance: start session once ready (solo user)
+  const autoSessionFiredRef = useRef(false);
+  useEffect(() => {
+    if (
+      autoStart &&
+      autoStartFiredRef.current &&
+      !autoSessionFiredRef.current &&
+      isReady &&
+      isCreator &&
+      participants.length === 1
+    ) {
+      autoSessionFiredRef.current = true;
+      void startSession();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isReady, isCreator, participants.length, autoStart]);
 
   const loadScriptDetails = useCallback(async (scriptId: string) => {
     setSceneLineBreakdownsLoaded(false);
@@ -283,6 +360,20 @@ export default function BackstagePage() {
         setSelectedScriptId(roomData.script_id);
         setStage('scene');
         await loadScriptDetails(roomData.script_id);
+
+        // Auto-advance: if room has a pre-selected scene, jump to call sheet
+        if (roomData.selected_scene_id && autoAdvanceCharacter && !autoAdvancedRef.current) {
+          autoAdvancedRef.current = true;
+          setSelectedSceneId(roomData.selected_scene_id);
+          setMode('pick');
+          // Set act ID from selected scene
+          const { data: sceneRow } = await supabase
+            .from('scenes')
+            .select('act_id')
+            .eq('id', roomData.selected_scene_id)
+            .single();
+          if (sceneRow) setSelectedActId(sceneRow.act_id);
+        }
       }
 
       // Join as participant
