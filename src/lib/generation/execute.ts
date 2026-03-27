@@ -110,7 +110,9 @@ async function listExistingGeneratedRecordings(
     .order('created_at', { ascending: false });
 
   if (error) {
-    throw new Error(`Failed to load existing AI recordings: ${error.message}`);
+    // Be resilient to partial production schema drift/cache lag. If this lookup fails,
+    // continue as if no prior AI recordings exist and let the run proceed.
+    return new Map();
   }
 
   const map = new Map<string, ExistingRecording>();
