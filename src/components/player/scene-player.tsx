@@ -75,6 +75,9 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
   }, [sceneId]);
 
   const current = items[currentIdx] ?? null;
+  const currentRecordingIsAudio = Boolean(
+    current?.hasRecording && current.recordingFormat && current.recordingFormat.startsWith('audio/')
+  );
 
   const playNext = useCallback(() => {
     if (currentIdx < items.length - 1) {
@@ -88,9 +91,14 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
   useEffect(() => {
     if (!playing || !current) return;
 
-    if (current.hasRecording && current.recordingUrl && videoRef.current) {
-      videoRef.current.src = current.recordingUrl;
-      videoRef.current.play().catch(() => {});
+    if (current.hasRecording && current.recordingUrl) {
+      if (currentRecordingIsAudio && audioRef.current) {
+        audioRef.current.src = current.recordingUrl;
+        audioRef.current.play().catch(() => {});
+      } else if (videoRef.current) {
+        videoRef.current.src = current.recordingUrl;
+        videoRef.current.play().catch(() => {});
+      }
     } else if (current.ttsUrl && audioRef.current) {
       audioRef.current.src = current.ttsUrl;
       audioRef.current.play().catch(() => {});
@@ -99,7 +107,7 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
       const timer = setTimeout(playNext, 3000);
       return () => clearTimeout(timer);
     }
-  }, [current, playNext, playing]);
+  }, [current, currentRecordingIsAudio, playNext, playing]);
 
   const handlePlay = () => {
     setPlaying(true);
@@ -258,7 +266,7 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
         <audio ref={audioRef} onEnded={playNext} />
 
         {/* Text display — shown during TTS or when no media */}
-        {(!current?.hasRecording || !playing) && current && (
+        {(!current?.hasRecording || !playing || currentRecordingIsAudio) && current && (
           <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
             {current.isSystem && (
               <p className="text-gold/50 text-xs uppercase tracking-wider mb-4">
@@ -290,7 +298,7 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
         )}
 
         {/* Performer badge on video */}
-        {current?.hasRecording && playing && current.performerName && (
+        {current?.hasRecording && playing && current.performerName && !currentRecordingIsAudio && (
           <div className="absolute bottom-3 left-3 bg-black/60 px-2 py-1 rounded-full z-10">
             <span className="text-gold text-xs">
               {current.fallbackSource === 'cover' ? 'Covered by ' : ''}{current.performerName}
@@ -303,7 +311,7 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
       </div>
 
       {/* Script text below video during recording playback */}
-      {current?.hasRecording && playing && (
+      {current?.hasRecording && playing && !currentRecordingIsAudio && (
         <div className="px-4 py-3 bg-background/50 border-t border-border">
           {current.character && (
             <span className="text-gold text-xs font-semibold mr-2">{current.character}</span>

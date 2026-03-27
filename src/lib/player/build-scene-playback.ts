@@ -20,6 +20,50 @@ export interface PlaybackItem {
   ttsUrl: string | null;
 }
 
+type RecordingJoin = {
+  chunk_id: string;
+  user_id: string | null;
+  room_id: string | null;
+  video_url: string;
+  format: string | null;
+  created_at: string;
+  profiles?: { display_name: string } | null;
+  ai_profile_id?: string | null;
+  ai_profiles?: { display_name: string; platform?: string | null } | null;
+};
+
+async function fetchRecordingsForScene(
+  supabase: SupabaseClient,
+  lineIds: string[]
+): Promise<RecordingJoin[]> {
+  if (lineIds.length === 0) return [];
+
+  const aiAwareSelect = 'chunk_id, user_id, room_id, video_url, format, created_at, profiles(display_name), ai_profile_id, ai_profiles(display_name, platform)';
+  const legacySelect = 'chunk_id, user_id, room_id, video_url, format, created_at, profiles(display_name)';
+
+  const tryQuery = async (select: string) => {
+    const { data, error } = await supabase
+      .from('recordings')
+      .select(select)
+      .in('chunk_id', lineIds)
+      .order('created_at', { ascending: false });
+
+    return { data: (data ?? []) as unknown as RecordingJoin[], error };
+  };
+
+  const aiAware = await tryQuery(aiAwareSelect);
+  if (!aiAware.error) {
+    return aiAware.data;
+  }
+
+  const legacy = await tryQuery(legacySelect);
+  if (!legacy.error) {
+    return legacy.data;
+  }
+
+  throw aiAware.error ?? legacy.error ?? new Error('Failed to load recordings');
+}
+
 export interface ScenePlaybackData {
   scene: {
     id: string;
@@ -72,25 +116,15 @@ export async function buildScenePlaybackData(
   if (lineRows.length === 0) return null;
 
   const lineIds = lineRows.map((line) => line.id);
-  const { data: recordings } = await supabase
-    .from('recordings')
-    .select('*, profiles(display_name)')
-    .in('chunk_id', lineIds)
-    .order('created_at', { ascending: false });
+  const recordingRows = await fetchRecordingsForScene(supabase, lineIds);
 
-  const recordingRows = (recordings ?? []) as Array<{
-    chunk_id: string;
-    user_id: string;
-    room_id: string | null;
-    video_url: string;
-    format: string | null;
-    profiles: { display_name: string } | null;
-  }>;
-
-  const { data: roomParticipants } = await supabase
-    .from('room_participants')
-    .select('user_id, assigned_chunks')
-    .eq('room_id', recordingRows[0]?.room_id ?? '');
+  const roomId = recordingRows.find((recording) => recording.room_id)?.room_id ?? null;
+  const { data: roomParticipants } = roomId
+    ? await supabase
+        .from('room_participants')
+        .select('user_id, assigned_chunks')
+        .eq('room_id', roomId)
+    : { data: [] };
 
   const lineAssignmentMap = new Map<string, string>();
   for (const rp of (roomParticipants ?? []) as Array<{ user_id: string; assigned_chunks: { chunk_id?: string; line_id?: string }[] | null }>) {
@@ -126,6 +160,7 @@ export async function buildScenePlaybackData(
 
   const items: PlaybackItem[] = lineRows.map((line) => {
     const recording = recordingMap.get(line.id);
+    const isAiGenerated = !!recording?.ai_profile_id || !!recording?.ai_profiles;
     const r2Url = r2SignedUrls.get(line.id);
     const ttsUrl = line.tts_audio_url
       ? `${supabaseUrl}/storage/v1/object/public/tts-audio/${line.tts_audio_url}`
@@ -142,9 +177,13 @@ export async function buildScenePlaybackData(
       hasRecording: !!recording,
       recordingUrl: r2Url ?? null,
       recordingFormat: recording?.format ?? null,
-      performerName: recording?.profiles?.display_name ?? null,
+      performerName: recording?.ai_profiles?.display_name ?? recording?.profiles?.display_name ?? null,
       fallbackSource: recording
-        ? (lineAssignmentMap.get(line.id) === recording.user_id ? 'performer' : 'cover')
+        ? (isAiGenerated
+          ? 'performer'
+          : lineAssignmentMap.get(line.id) === recording.user_id
+            ? 'performer'
+            : 'cover')
         : line.tts_audio_url ? 'tts' : 'text',
       ttsUrl,
     };

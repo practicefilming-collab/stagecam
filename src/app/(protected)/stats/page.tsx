@@ -40,7 +40,7 @@ export default function AdminHubPage() {
         Admin Stats
       </h1>
 
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         <Link
           href="/stats/coverage"
           className="group bg-surface border border-border rounded-2xl p-8 hover:border-gold/30 transition-all"
@@ -64,6 +64,19 @@ export default function AdminHubPage() {
           </h2>
           <p className="text-sm text-muted">
             View all users, their login type, activity, and storage usage.
+          </p>
+        </Link>
+
+        <Link
+          href="/stats/ai"
+          className="group bg-surface border border-border rounded-2xl p-8 hover:border-gold/30 transition-all"
+        >
+          <div className="text-3xl mb-4">🤖</div>
+          <h2 className="text-xl font-semibold mb-2 group-hover:text-gold transition-colors">
+            AI Stats
+          </h2>
+          <p className="text-sm text-muted">
+            Review Grok voice profiles, generation runs, and AI-owned coverage logs.
           </p>
         </Link>
       </div>

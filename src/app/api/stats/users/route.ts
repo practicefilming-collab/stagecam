@@ -45,22 +45,77 @@ export async function GET() {
     }
   }
 
-  // Get recording stats per user, joining rooms to get script_id (serviceClient bypasses RLS)
-  const { data: recordings } = await serviceClient
-    .from('recordings')
-    .select('user_id, room_id, size_bytes, rooms(script_id)');
+  type RecordingJoin = {
+    user_id: string | null;
+    size_bytes: number | null;
+    chunk_id: string;
+    ai_profile_id?: string | null;
+    chunks: {
+      scene_id: string;
+      scenes: {
+        acts: {
+          script_id: string;
+        };
+      };
+    } | null;
+  };
+
+  const aiAwareSelect = `
+    user_id,
+    size_bytes,
+    chunk_id,
+    ai_profile_id,
+    chunks!inner(
+      scene_id,
+      scenes!inner(
+        acts!inner(script_id)
+      )
+    )
+  `;
+
+  const legacySelect = `
+    user_id,
+    size_bytes,
+    chunk_id,
+    chunks!inner(
+      scene_id,
+      scenes!inner(
+        acts!inner(script_id)
+      )
+    )
+  `;
+
+  async function fetchRecordings(select: string) {
+    const { data, error } = await serviceClient
+      .from('recordings')
+      .select(select)
+      .order('created_at', { ascending: false });
+
+    return { data: (data ?? []) as unknown as RecordingJoin[], error };
+  }
+
+  const aiAwareRecordings = await fetchRecordings(aiAwareSelect);
+  const recordingsResult = aiAwareRecordings.error ? await fetchRecordings(legacySelect) : aiAwareRecordings;
+  if (recordingsResult.error) {
+    throw recordingsResult.error;
+  }
+  const recordings = recordingsResult.data;
+  const humanRecordings = recordings.filter((rec) => !!rec.user_id);
 
   const userStats = new Map<string, { scripts: Set<string>; totalRecordings: number; storageBytes: number }>();
 
-  for (const rec of recordings ?? []) {
+  for (const rec of humanRecordings) {
+    if (!rec.user_id) continue;
+
     let stats = userStats.get(rec.user_id);
     if (!stats) {
       stats = { scripts: new Set(), totalRecordings: 0, storageBytes: 0 };
       userStats.set(rec.user_id, stats);
     }
-    const room = rec.rooms as unknown as { script_id: string };
-    if (room?.script_id) {
-      stats.scripts.add(room.script_id);
+
+    const scriptId = rec.chunks?.scenes?.acts?.script_id;
+    if (scriptId) {
+      stats.scripts.add(scriptId);
     }
     stats.totalRecordings++;
     stats.storageBytes += rec.size_bytes ?? 0;
@@ -90,10 +145,13 @@ export async function GET() {
   const allScripts = new Set<string>();
   let totalRecordings = 0;
   let totalStorage = 0;
-  for (const stats of userStats.values()) {
-    for (const sid of stats.scripts) allScripts.add(sid);
-    totalRecordings += stats.totalRecordings;
-    totalStorage += stats.storageBytes;
+  for (const rec of humanRecordings) {
+    const scriptId = rec.chunks?.scenes?.acts?.script_id;
+    if (scriptId) {
+      allScripts.add(scriptId);
+    }
+    totalRecordings += 1;
+    totalStorage += rec.size_bytes ?? 0;
   }
 
   // Count total scripts in DB

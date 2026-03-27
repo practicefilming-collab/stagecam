@@ -1,6 +1,12 @@
 /** Shared TypeScript interfaces matching the Supabase schema. */
 export type AuthProvider = 'instagram' | 'tiktok' | 'google';
 export type PublicIdentityPlatform = 'instagram' | 'tiktok' | 'incognito';
+export type AIProfilePlatform = 'Grok';
+export type AIProfileStatus = 'active' | 'paused' | 'archived';
+export type ScriptGenerationRunStatus = 'queued' | 'processing' | 'succeeded' | 'failed' | 'cancelled';
+export type ScriptGenerationExecutionMode = 'offline_batch';
+export type LineGenerationStatus = 'pending' | 'interpreted' | 'synthesized' | 'persisted' | 'failed';
+export type RecordingSource = 'human' | 'ai_generated';
 
 export type LineType = 'scene_heading' | 'action' | 'dialogue' | 'transition';
 export type ChunkType = LineType;
@@ -21,6 +27,71 @@ export interface Profile {
   terms_version: string | null;
   is_admin: boolean;
   created_at: string;
+}
+
+export interface AIProfile {
+  id: string;
+  script_id: string;
+  display_name: string;
+  status: AIProfileStatus;
+  platform: AIProfilePlatform;
+  voice_persona_id: string;
+  voice_persona_label: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScriptGenerationRun {
+  id: string;
+  script_id: string;
+  ai_profile_ids: string[];
+  status: ScriptGenerationRunStatus;
+  execution_mode: ScriptGenerationExecutionMode;
+  character_map: Record<string, unknown>;
+  provider_config: Record<string, unknown>;
+  retry_policy: Record<string, unknown>;
+  total_lines: number;
+  persisted_lines: number;
+  failed_lines: number;
+  error_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LineGenerationRecord {
+  id: string;
+  run_id: string;
+  script_id: string;
+  scene_id: string;
+  chunk_id: string;
+  ai_profile_id: string;
+  status: LineGenerationStatus;
+  source_line_snapshot: string;
+  prompt_context_version: string | null;
+  pause_before_ms: number | null;
+  pause_after_ms: number | null;
+  emotion_labels: string[];
+  delivery_notes: string | null;
+  cadence_notes: string | null;
+  continuity_notes: string | null;
+  interpretation_provider: string;
+  interpretation_request_payload: Record<string, unknown>;
+  interpretation_response_payload: Record<string, unknown>;
+  synthesis_provider: string | null;
+  synthesis_request_payload: Record<string, unknown>;
+  synthesis_response_payload: Record<string, unknown>;
+  synthesis_asset_key: string | null;
+  recording_id: string | null;
+  error_message: string | null;
+  error_details: Record<string, unknown> | null;
+  interpreted_at: string | null;
+  synthesized_at: string | null;
+  persisted_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Script {
@@ -110,11 +181,15 @@ export interface AssignedChunk {
 export interface Recording {
   id: string;
   chunk_id: string;
-  user_id: string;
-  room_id: string;
+  user_id: string | null;
+  room_id: string | null;
+  ai_profile_id: string | null;
+  generation_run_id: string | null;
+  line_generation_record_id: string | null;
+  recording_source: RecordingSource;
   video_url: string;
   duration_seconds: number | null;
-  format: string;
+  format: string | null;
   created_at: string;
 }
 
