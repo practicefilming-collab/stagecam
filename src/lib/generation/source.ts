@@ -3,9 +3,10 @@ import type { GenerationSourceLine } from './types';
 
 export async function loadGenerationSourceLines(
   admin: SupabaseClient,
-  scriptId: string
+  scriptId: string,
+  options: { sceneId?: string } = {}
 ): Promise<GenerationSourceLine[]> {
-  const { data, error } = await admin
+  let query = admin
     .from('chunks')
     .select(`
       id,
@@ -24,6 +25,12 @@ export async function loadGenerationSourceLines(
     `)
     .eq('scenes.acts.script_id', scriptId)
     .order('chunk_index', { ascending: true });
+
+  if (options.sceneId) {
+    query = query.eq('scene_id', options.sceneId);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throw new Error(`Failed to load generation source lines: ${error.message}`);

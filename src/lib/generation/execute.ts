@@ -3,11 +3,8 @@ import { buildSyntheticAudioPlan, persistSyntheticAudioToR2 } from './storage';
 import { countGenerationStatuses, runGenerationBatch } from './runner';
 import { loadGenerationSourceLines } from './source';
 import { synthesizeWithXaiTts } from './xai';
-import type {
-  AIProfile,
-  LineGenerationRecord,
-  ScriptGenerationRun,
-} from '@/lib/types';
+import { recalculateGenerationRun } from './jobs';
+import type { AIProfile, LineGenerationRecord, ScriptGenerationRun, SceneGenerationJob } from '@/lib/types';
 import type {
   GenerationBatchResult,
   GenerationProfile,
@@ -21,6 +18,13 @@ type ExistingRecording = {
   video_url: string;
   format: string | null;
   line_generation_record_id: string | null;
+};
+
+type SceneJobExecutionResult = {
+  job: SceneGenerationJob;
+  run: ScriptGenerationRun;
+  profile: AIProfile;
+  statusCounts: Record<string, number>;
 };
 
 function formatToExtension(format: string | null): string {
@@ -75,7 +79,7 @@ function buildResumeSnapshot(
   return Object.keys(lineStates).length > 0 ? { runId, lineStates } : null;
 }
 
-async function listAiProfiles(
+export async function listAiProfiles(
   admin: SupabaseClient,
   scriptId: string,
   aiProfileIds: string[]
@@ -94,6 +98,19 @@ async function listAiProfiles(
   return (data ?? []) as AIProfile[];
 }
 
+async function loadAiProfile(
+  admin: SupabaseClient,
+  scriptId: string,
+  aiProfileId: string
+): Promise<AIProfile> {
+  const profiles = await listAiProfiles(admin, scriptId, [aiProfileId]);
+  const profile = profiles[0];
+  if (!profile) {
+    throw new Error('AI profile not found for scene generation job');
+  }
+  return profile;
+}
+
 async function listExistingGeneratedRecordings(
   admin: SupabaseClient,
   aiProfileId: string,
@@ -110,8 +127,6 @@ async function listExistingGeneratedRecordings(
     .order('created_at', { ascending: false });
 
   if (error) {
-    // Be resilient to partial production schema drift/cache lag. If this lookup fails,
-    // continue as if no prior AI recordings exist and let the run proceed.
     return new Map();
   }
 
@@ -124,18 +139,18 @@ async function listExistingGeneratedRecordings(
   return map;
 }
 
-async function insertLineGenerationRecord(
+async function upsertLineGenerationRecord(
   admin: SupabaseClient,
   payload: Omit<LineGenerationRecord, 'id' | 'created_at' | 'updated_at'>
 ): Promise<string> {
   const { data, error } = await admin
     .from('line_generation_records')
-    .insert(payload)
+    .upsert(payload, { onConflict: 'run_id,ai_profile_id,chunk_id' })
     .select('id')
     .single();
 
   if (error || !data) {
-    throw new Error(error?.message ?? 'Failed to insert line generation record');
+    throw new Error(error?.message ?? 'Failed to upsert line generation record');
   }
 
   return data.id as string;
@@ -190,6 +205,7 @@ async function executeSingleProfileRun(input: {
     ? new Map<string, ExistingRecording>()
     : await listExistingGeneratedRecordings(input.admin, input.profile.id, eligibleChunkIds);
   const insertedLineIds = new Set<string>();
+  const lineMap = new Map(input.sourceLines.map((line) => [line.id, line]));
   const resume = buildResumeSnapshot(input.runId, input.sourceLines, existingRecordings);
 
   const result = await runGenerationBatch(
@@ -228,7 +244,7 @@ async function executeSingleProfileRun(input: {
           },
         });
 
-        const lineGenerationRecordId = await insertLineGenerationRecord(input.admin, {
+        const lineGenerationRecordId = await upsertLineGenerationRecord(input.admin, {
           run_id: input.runId,
           script_id: input.scriptId,
           scene_id: line.sceneId,
@@ -316,12 +332,12 @@ async function executeSingleProfileRun(input: {
   for (const [lineId, state] of Object.entries(result.lineStates)) {
     if (insertedLineIds.has(lineId)) continue;
 
-    const line = input.sourceLines.find((entry) => entry.id === lineId);
+    const line = lineMap.get(lineId);
     if (!line) continue;
 
     const existingRecording = existingRecordings.get(lineId) ?? null;
 
-    await insertLineGenerationRecord(input.admin, {
+    await upsertLineGenerationRecord(input.admin, {
       run_id: input.runId,
       script_id: input.scriptId,
       scene_id: line.sceneId,
@@ -367,103 +383,94 @@ async function executeSingleProfileRun(input: {
   return result;
 }
 
-export async function executeGenerationRun(input: {
+async function loadSceneJob(
+  admin: SupabaseClient,
+  jobId: string
+): Promise<SceneGenerationJob> {
+  const { data, error } = await admin
+    .from('scene_generation_jobs')
+    .select('*')
+    .eq('id', jobId)
+    .single();
+
+  if (error || !data) {
+    throw new Error(error?.message ?? 'Scene generation job not found');
+  }
+
+  return data as SceneGenerationJob;
+}
+
+async function loadRun(
+  admin: SupabaseClient,
+  runId: string
+): Promise<ScriptGenerationRun> {
+  const { data, error } = await admin
+    .from('script_generation_runs')
+    .select('*')
+    .eq('id', runId)
+    .single();
+
+  if (error || !data) {
+    throw new Error(error?.message ?? 'Generation run not found');
+  }
+
+  return data as ScriptGenerationRun;
+}
+
+export async function executeSceneGenerationJob(input: {
   admin: SupabaseClient;
-  runId: string;
-  scriptId: string;
-  aiProfileIds: string[];
-  regenerateExisting?: boolean;
-}): Promise<{
-  run: ScriptGenerationRun;
-  profiles: AIProfile[];
-  statusCounts: Record<string, number>;
-}> {
+  jobId: string;
+}): Promise<SceneJobExecutionResult> {
   const apiKey = process.env.XAI_API_KEY;
   if (!apiKey) {
     throw new Error('Missing XAI_API_KEY');
   }
 
-  const profiles = await listAiProfiles(input.admin, input.scriptId, input.aiProfileIds);
-  if (profiles.length === 0) {
-    throw new Error('No AI profiles found for the requested run');
-  }
-
-  const sourceLines = await loadGenerationSourceLines(input.admin, input.scriptId);
+  const job = await loadSceneJob(input.admin, input.jobId);
+  await loadRun(input.admin, job.run_id);
+  const profile = await loadAiProfile(input.admin, job.script_id, job.ai_profile_id);
+  const sourceLines = await loadGenerationSourceLines(input.admin, job.script_id, { sceneId: job.scene_id });
   const eligibleLineCount = sourceLines.filter((line) => !line.isSystem).length;
-  const totalLines = eligibleLineCount * profiles.length;
-  const aggregateCounts: Record<string, number> = {
-    pending: 0,
-    interpreted: 0,
-    synthesized: 0,
-    persisted: 0,
-    failed: 0,
-  };
 
-  await input.admin
-    .from('script_generation_runs')
+  const result = await executeSingleProfileRun({
+    admin: input.admin,
+    runId: job.run_id,
+    scriptId: job.script_id,
+    sourceLines,
+    profile,
+    regenerateExisting: job.regenerate_existing,
+    apiKey,
+  });
+
+  const counts = countGenerationStatuses(result.lineStates);
+  const nextJobStatus = counts.failed > 0 ? 'failed' : 'succeeded';
+
+  const { data: updatedJob, error: jobUpdateError } = await input.admin
+    .from('scene_generation_jobs')
     .update({
-      status: 'processing',
-      total_lines: totalLines,
-      started_at: new Date().toISOString(),
-      provider_config: {
-        provider: 'xAI',
-        endpoint: 'https://api.x.ai/v1/tts',
-      },
+      status: nextJobStatus,
+      total_lines: eligibleLineCount,
+      persisted_lines: counts.persisted ?? 0,
+      failed_lines: counts.failed ?? 0,
+      progress_pct: 100,
+      finished_at: new Date().toISOString(),
+      error_message: counts.failed > 0 ? 'One or more lines failed in this scene job' : null,
     })
-    .eq('id', input.runId);
+    .eq('id', job.id)
+    .select('*')
+    .single();
 
-  try {
-    for (const profile of profiles) {
-      const result = await executeSingleProfileRun({
-        admin: input.admin,
-        runId: input.runId,
-        scriptId: input.scriptId,
-        sourceLines,
-        profile,
-        regenerateExisting: input.regenerateExisting ?? false,
-        apiKey,
-      });
-
-      const counts = countGenerationStatuses(result.lineStates);
-      for (const [status, count] of Object.entries(counts)) {
-        aggregateCounts[status] = (aggregateCounts[status] ?? 0) + count;
-      }
-    }
-
-    const { data, error } = await input.admin
-      .from('script_generation_runs')
-      .update({
-        status: aggregateCounts.failed > 0 ? 'failed' : 'succeeded',
-        persisted_lines: aggregateCounts.persisted ?? 0,
-        failed_lines: aggregateCounts.failed ?? 0,
-        finished_at: new Date().toISOString(),
-        error_message: aggregateCounts.failed > 0 ? 'One or more lines failed to generate' : null,
-      })
-      .eq('id', input.runId)
-      .select('*')
-      .single();
-
-    if (error || !data) {
-      throw new Error(error?.message ?? 'Failed to finalize generation run');
-    }
-
-    return {
-      run: data as ScriptGenerationRun,
-      profiles,
-      statusCounts: aggregateCounts,
-    };
-  } catch (error) {
-    await input.admin
-      .from('script_generation_runs')
-      .update({
-        status: 'failed',
-        persisted_lines: aggregateCounts.persisted ?? 0,
-        failed_lines: aggregateCounts.failed ?? 0,
-        finished_at: new Date().toISOString(),
-        error_message: error instanceof Error ? error.message : 'Generation failed',
-      })
-      .eq('id', input.runId);
-
-    throw error;
+  if (jobUpdateError || !updatedJob) {
+    throw new Error(jobUpdateError?.message ?? 'Failed to finalize scene generation job');
   }
+
+  await recalculateGenerationRun(input.admin, job.run_id);
+  const updatedRun = await loadRun(input.admin, job.run_id);
+
+  return {
+    job: updatedJob as SceneGenerationJob,
+    run: updatedRun,
+    profile,
+    statusCounts: counts,
+  };
 }

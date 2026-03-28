@@ -11,6 +11,8 @@ interface AiTotals {
   totalGeneratedRecordings: number;
   totalPersistedLines: number;
   totalFailedLines: number;
+  totalQueuedJobs: number;
+  totalProcessingJobs: number;
 }
 
 interface AiProfileRow {
@@ -40,6 +42,13 @@ interface AiRunRow {
   startedAt: string | null;
   finishedAt: string | null;
   createdAt: string;
+  sceneJobCounts: {
+    queued: number;
+    processing: number;
+    succeeded: number;
+    failed: number;
+    cancelled: number;
+  };
   failedEntries: Array<{
     character: string | null;
     chunkInScene: number | null;
@@ -77,6 +86,8 @@ function statusClass(status: string): string {
     case 'failed':
     case 'archived':
       return 'bg-red-500/15 text-red-400';
+    case 'queued':
+      return 'bg-amber-500/15 text-amber-300';
     default:
       return 'bg-muted/15 text-muted';
   }
@@ -91,22 +102,38 @@ export default function AiStatsPage() {
   const [forbidden, setForbidden] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function load() {
       const res = await fetch('/api/stats/ai');
+      if (cancelled) return;
+
       if (res.status === 403) {
         setForbidden(true);
         setLoading(false);
         return;
       }
+
       if (res.ok) {
         const data = await res.json();
+        if (cancelled) return;
         setTotals(data.totals);
         setProfiles(data.profiles);
         setRuns(data.runs);
       }
+
       setLoading(false);
     }
+
     void load();
+    const interval = window.setInterval(() => {
+      void load();
+    }, 10000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -132,7 +159,7 @@ export default function AiStatsPage() {
       <h1 className="text-2xl font-bold text-gold mt-3 mb-8">AI Stats</h1>
 
       {totals && (
-        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-10">
+        <div className="grid grid-cols-2 lg:grid-cols-8 gap-3 mb-10">
           {[
             { label: 'Profiles', value: totals.totalProfiles },
             { label: 'Active', value: totals.activeProfiles },
@@ -140,6 +167,8 @@ export default function AiStatsPage() {
             { label: 'AI Recordings', value: totals.totalGeneratedRecordings },
             { label: 'Persisted Lines', value: totals.totalPersistedLines },
             { label: 'Failed Lines', value: totals.totalFailedLines },
+            { label: 'Queued Jobs', value: totals.totalQueuedJobs },
+            { label: 'Processing Jobs', value: totals.totalProcessingJobs },
           ].map((item) => (
             <div key={item.label} className="bg-surface border border-gold/20 rounded-xl p-4 text-center">
               <p className="text-2xl font-bold text-gold">{item.value}</p>
@@ -195,7 +224,7 @@ export default function AiStatsPage() {
       <section>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">Generation Runs</h2>
-          <span className="text-xs text-muted">Summary plus line failures</span>
+          <span className="text-xs text-muted">Queued scene jobs with recent line failures</span>
         </div>
 
         <div className="space-y-3">
@@ -215,6 +244,13 @@ export default function AiStatsPage() {
                 <span>{run.persistedLines} / {run.totalLines} persisted</span>
                 <span>{run.failedLines} failed</span>
                 <span>{run.skippedLines} skipped/reused</span>
+                <span>{run.sceneJobCounts.queued} queued jobs</span>
+                <span>{run.sceneJobCounts.processing} processing jobs</span>
+                <span>{run.sceneJobCounts.succeeded} succeeded jobs</span>
+                <span>{run.sceneJobCounts.failed} failed jobs</span>
+              </div>
+
+              <div className="flex flex-wrap gap-5 text-xs text-muted mb-3">
                 <span>Started: {formatDate(run.startedAt)}</span>
                 <span>Finished: {formatDate(run.finishedAt)}</span>
               </div>

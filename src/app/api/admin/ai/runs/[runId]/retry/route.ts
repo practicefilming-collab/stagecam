@@ -1,9 +1,25 @@
-import { randomUUID } from 'crypto';
 import { NextResponse } from 'next/server';
 import { isAdmin } from '@/lib/admin';
-import { executeGenerationRun } from '@/lib/generation/execute';
+import { recalculateGenerationRun } from '@/lib/generation/jobs';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
+
+async function kickoffProcessing(request: Request, runId: string) {
+  const processUrl = new URL('/api/admin/ai/process', request.url);
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const workerToken = process.env.AI_GENERATION_WORKER_TOKEN ?? process.env.EXPORT_WORKER_TOKEN;
+  if (workerToken) {
+    headers['x-ai-generation-worker-token'] = workerToken;
+  }
+
+  void fetch(processUrl.toString(), {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ runId }),
+  }).catch(() => {
+    // Best-effort trigger; queued jobs remain visible for manual retry.
+  });
+}
 
 export async function POST(
   request: Request,
@@ -22,11 +38,12 @@ export async function POST(
   const { runId } = await params;
   const body = await request.json().catch(() => ({} as Record<string, unknown>));
   const regenerateExisting = body.regenerateExisting === true;
+  const retryFailedOnly = body.retryFailedOnly !== false;
   const admin = createAdminClient();
 
   const { data: existingRun, error } = await admin
     .from('script_generation_runs')
-    .select('script_id, ai_profile_ids')
+    .select('id')
     .eq('id', runId)
     .single();
 
@@ -34,52 +51,56 @@ export async function POST(
     return NextResponse.json({ error: error?.message ?? 'Run not found' }, { status: 404 });
   }
 
-  const nextRunId = randomUUID();
-  const { error: insertError } = await admin
-    .from('script_generation_runs')
-    .insert({
-      id: nextRunId,
-      script_id: existingRun.script_id,
-      ai_profile_ids: existingRun.ai_profile_ids,
+  let query = admin
+    .from('scene_generation_jobs')
+    .update({
       status: 'queued',
-      execution_mode: 'offline_batch',
-      character_map: {},
-      provider_config: {
-        provider: 'xAI',
-        mode: 'tts',
-      },
+      progress_pct: 0,
+      regenerate_existing: regenerateExisting,
+      error_message: null,
+      finished_at: null,
+    })
+    .eq('run_id', runId);
+
+  if (retryFailedOnly) {
+    query = query.eq('status', 'failed');
+  } else {
+    query = query.in('status', ['failed', 'succeeded', 'cancelled']);
+  }
+
+  const { data: updatedJobs, error: updateError } = await query.select('id');
+
+  if (updateError) {
+    return NextResponse.json({ error: updateError.message }, { status: 500 });
+  }
+
+  const requeuedCount = (updatedJobs ?? []).length;
+  if (requeuedCount === 0) {
+    return NextResponse.json({ error: 'No scene jobs were eligible for retry.' }, { status: 400 });
+  }
+
+  await admin
+    .from('script_generation_runs')
+    .update({
+      status: 'queued',
+      error_message: null,
+      finished_at: null,
       retry_policy: {
-        parentRunId: runId,
+        retryFailedOnly,
         regenerateExisting,
+        retriedAt: new Date().toISOString(),
       },
-    });
+    })
+    .eq('id', runId);
 
-  if (insertError) {
-    return NextResponse.json({ error: insertError.message }, { status: 500 });
-  }
+  await recalculateGenerationRun(admin, runId);
+  await kickoffProcessing(request, runId);
 
-  try {
-    const execution = await executeGenerationRun({
-      admin,
-      runId: nextRunId,
-      scriptId: existingRun.script_id as string,
-      aiProfileIds: (existingRun.ai_profile_ids as string[]) ?? [],
-      regenerateExisting,
-    });
-
-    return NextResponse.json({
-      retriedFromRunId: runId,
-      run: execution.run,
-      profiles: execution.profiles,
-      statusCounts: execution.statusCounts,
-    }, { status: 201 });
-  } catch (executionError) {
-    return NextResponse.json(
-      {
-        error: executionError instanceof Error ? executionError.message : 'Retry run failed',
-        runId: nextRunId,
-      },
-      { status: 500 }
-    );
-  }
+  return NextResponse.json({
+    runId,
+    status: 'queued',
+    retryFailedOnly,
+    regenerateExisting,
+    requeuedCount,
+  }, { status: 202 });
 }

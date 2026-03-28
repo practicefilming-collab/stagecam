@@ -4,6 +4,7 @@ export type PublicIdentityPlatform = 'instagram' | 'tiktok' | 'incognito';
 export type AIProfilePlatform = 'Grok';
 export type AIProfileStatus = 'active' | 'paused' | 'archived';
 export type ScriptGenerationRunStatus = 'queued' | 'processing' | 'succeeded' | 'failed' | 'cancelled';
+export type SceneGenerationJobStatus = 'queued' | 'processing' | 'succeeded' | 'failed' | 'cancelled';
 export type ScriptGenerationExecutionMode = 'offline_batch';
 export type LineGenerationStatus = 'pending' | 'interpreted' | 'synthesized' | 'persisted' | 'failed';
 export type RecordingSource = 'human' | 'ai_generated';
@@ -54,6 +55,26 @@ export interface ScriptGenerationRun {
   total_lines: number;
   persisted_lines: number;
   failed_lines: number;
+  error_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SceneGenerationJob {
+  id: string;
+  run_id: string;
+  script_id: string;
+  scene_id: string;
+  ai_profile_id: string;
+  status: SceneGenerationJobStatus;
+  progress_pct: number;
+  regenerate_existing: boolean;
+  total_lines: number;
+  persisted_lines: number;
+  failed_lines: number;
+  attempt_count: number;
   error_message: string | null;
   started_at: string | null;
   finished_at: string | null;

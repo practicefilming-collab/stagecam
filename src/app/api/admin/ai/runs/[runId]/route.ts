@@ -48,7 +48,7 @@ export async function GET(
   }
 
   const profileIds = (run.ai_profile_ids as string[]) ?? [];
-  const [{ data: profiles }, { data: lineRecords }] = await Promise.all([
+  const [{ data: profiles }, { data: lineRecords }, { data: sceneJobs }] = await Promise.all([
     profileIds.length > 0
       ? admin
           .from('ai_profiles')
@@ -61,6 +61,7 @@ export async function GET(
         id,
         ai_profile_id,
         chunk_id,
+        scene_id,
         status,
         source_line_snapshot,
         error_message,
@@ -69,6 +70,27 @@ export async function GET(
       `)
       .eq('run_id', runId)
       .order('created_at', { ascending: false }),
+    admin
+      .from('scene_generation_jobs')
+      .select(`
+        id,
+        scene_id,
+        ai_profile_id,
+        status,
+        progress_pct,
+        regenerate_existing,
+        total_lines,
+        persisted_lines,
+        failed_lines,
+        attempt_count,
+        error_message,
+        started_at,
+        finished_at,
+        created_at,
+        scenes(scene_number, scene_heading)
+      `)
+      .eq('run_id', runId)
+      .order('created_at', { ascending: true }),
   ]);
 
   const profileMap = new Map((profiles ?? []).map((profile) => [profile.id as string, profile]));
@@ -85,6 +107,7 @@ export async function GET(
     const entry = {
       id: row.id,
       chunkId: row.chunk_id,
+      sceneId: row.scene_id,
       aiProfileId: row.ai_profile_id,
       aiProfileName: (profileMap.get(row.ai_profile_id as string)?.display_name as string | undefined) ?? 'Unknown voice',
       status: row.status,
@@ -128,6 +151,25 @@ export async function GET(
         };
       }),
     },
+    sceneJobs: (sceneJobs ?? []).map((job) => ({
+      id: job.id,
+      sceneId: job.scene_id,
+      aiProfileId: job.ai_profile_id,
+      aiProfileName: (profileMap.get(job.ai_profile_id as string)?.display_name as string | undefined) ?? 'Unknown voice',
+      status: job.status,
+      progressPct: job.progress_pct,
+      regenerateExisting: job.regenerate_existing,
+      totalLines: job.total_lines,
+      persistedLines: job.persisted_lines,
+      failedLines: job.failed_lines,
+      attemptCount: job.attempt_count,
+      errorMessage: job.error_message,
+      startedAt: job.started_at,
+      finishedAt: job.finished_at,
+      createdAt: job.created_at,
+      sceneNumber: (job.scenes as { scene_number?: number } | null)?.scene_number ?? null,
+      sceneHeading: (job.scenes as { scene_heading?: string | null } | null)?.scene_heading ?? null,
+    })),
     failedEntries,
     skippedEntries,
   });

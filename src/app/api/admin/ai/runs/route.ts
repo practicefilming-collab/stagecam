@@ -1,7 +1,9 @@
 import { randomUUID } from 'crypto';
 import { NextResponse } from 'next/server';
 import { isAdmin } from '@/lib/admin';
-import { executeGenerationRun } from '@/lib/generation/execute';
+import { buildSceneJobSeeds, enqueueSceneGenerationJobs } from '@/lib/generation/jobs';
+import { loadGenerationSourceLines } from '@/lib/generation/source';
+import { listAiProfiles } from '@/lib/generation/execute';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 
@@ -17,6 +19,23 @@ async function requireAdmin() {
   }
 
   return { user };
+}
+
+async function kickoffProcessing(request: Request, runId: string) {
+  const processUrl = new URL('/api/admin/ai/process', request.url);
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const workerToken = process.env.AI_GENERATION_WORKER_TOKEN ?? process.env.EXPORT_WORKER_TOKEN;
+  if (workerToken) {
+    headers['x-ai-generation-worker-token'] = workerToken;
+  }
+
+  void fetch(processUrl.toString(), {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ runId }),
+  }).catch(() => {
+    // Best-effort trigger; queued jobs remain retryable.
+  });
 }
 
 export async function GET() {
@@ -51,7 +70,7 @@ export async function GET() {
   const runIds = (runs ?? []).map((run) => run.id as string);
   const profileIds = [...new Set((runs ?? []).flatMap((run) => (run.ai_profile_ids as string[]) ?? []))];
 
-  const [{ data: profiles }, { data: failedRecords }] = await Promise.all([
+  const [{ data: profiles }, { data: failedRecords }, { data: sceneJobs }] = await Promise.all([
     profileIds.length > 0
       ? admin
           .from('ai_profiles')
@@ -66,10 +85,25 @@ export async function GET() {
           .eq('status', 'failed')
           .order('created_at', { ascending: false })
       : Promise.resolve({ data: [] }),
+    runIds.length > 0
+      ? admin
+          .from('scene_generation_jobs')
+          .select('run_id, status')
+          .in('run_id', runIds)
+      : Promise.resolve({ data: [] }),
   ]);
 
   const profileMap = new Map((profiles ?? []).map((profile) => [profile.id as string, profile]));
   const failedByRun = new Map<string, Array<Record<string, unknown>>>();
+  const sceneJobCounts = new Map<string, Record<string, number>>();
+
+  for (const row of (sceneJobs ?? []) as Array<Record<string, unknown>>) {
+    const runId = row.run_id as string;
+    const status = row.status as string;
+    const counts = sceneJobCounts.get(runId) ?? { queued: 0, processing: 0, succeeded: 0, failed: 0, cancelled: 0 };
+    counts[status] = (counts[status] ?? 0) + 1;
+    sceneJobCounts.set(runId, counts);
+  }
 
   for (const row of (failedRecords ?? []) as Array<Record<string, unknown>>) {
     const runId = row.run_id as string;
@@ -92,6 +126,7 @@ export async function GET() {
     startedAt: run.started_at,
     finishedAt: run.finished_at,
     createdAt: run.created_at,
+    sceneJobCounts: sceneJobCounts.get(run.id as string) ?? { queued: 0, processing: 0, succeeded: 0, failed: 0, cancelled: 0 },
     profiles: ((run.ai_profile_ids as string[]) ?? []).map((id) => {
       const profile = profileMap.get(id);
       return {
@@ -138,8 +173,18 @@ export async function POST(request: Request) {
   }
 
   const admin = createAdminClient();
-  const runId = randomUUID();
+  const profiles = await listAiProfiles(admin, scriptId, aiProfileIds);
+  if (profiles.length !== aiProfileIds.length) {
+    return NextResponse.json({ error: 'One or more AI profiles were not found for this script.' }, { status: 400 });
+  }
 
+  const sourceLines = await loadGenerationSourceLines(admin, scriptId);
+  const sceneSeeds = buildSceneJobSeeds(sourceLines);
+  if (sceneSeeds.length === 0) {
+    return NextResponse.json({ error: 'No rehearsable lines found for this script.' }, { status: 400 });
+  }
+
+  const runId = randomUUID();
   const { error: insertError } = await admin
     .from('script_generation_runs')
     .insert({
@@ -152,10 +197,16 @@ export async function POST(request: Request) {
       provider_config: {
         provider: 'xAI',
         mode: 'tts',
+        queueMode: 'scene_jobs',
       },
       retry_policy: {
         regenerateExisting,
+        retryFailedOnly: true,
       },
+      total_lines: sceneSeeds.reduce((sum, seed) => sum + seed.totalLines, 0) * aiProfileIds.length,
+      persisted_lines: 0,
+      failed_lines: 0,
+      error_message: null,
     });
 
   if (insertError) {
@@ -163,25 +214,42 @@ export async function POST(request: Request) {
   }
 
   try {
-    const execution = await executeGenerationRun({
+    const { totalLines, jobsCreated } = await enqueueSceneGenerationJobs({
       admin,
       runId,
       scriptId,
       aiProfileIds,
+      sceneSeeds,
       regenerateExisting,
     });
 
+    await admin
+      .from('script_generation_runs')
+      .update({ total_lines: totalLines })
+      .eq('id', runId);
+
+    await kickoffProcessing(request, runId);
+
     return NextResponse.json({
-      run: execution.run,
-      profiles: execution.profiles,
-      statusCounts: execution.statusCounts,
-    }, { status: 201 });
+      runId,
+      status: 'queued',
+      totalLines,
+      jobsCreated,
+      sceneCount: sceneSeeds.length,
+      profileCount: aiProfileIds.length,
+    }, { status: 202 });
   } catch (error) {
+    await admin
+      .from('script_generation_runs')
+      .update({
+        status: 'failed',
+        finished_at: new Date().toISOString(),
+        error_message: error instanceof Error ? error.message : 'Failed to enqueue generation jobs',
+      })
+      .eq('id', runId);
+
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : 'Generation run failed',
-        runId,
-      },
+      { error: error instanceof Error ? error.message : 'Failed to enqueue generation jobs', runId },
       { status: 500 }
     );
   }

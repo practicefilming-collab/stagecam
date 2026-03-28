@@ -35,7 +35,7 @@ export async function GET() {
   const runIds = (runs ?? []).map((run) => run.id as string);
   const profileIds = (profiles ?? []).map((profile) => profile.id as string);
 
-  const [{ data: lineRecords }, { data: aiRecordings }] = await Promise.all([
+  const [{ data: lineRecords }, { data: aiRecordings }, { data: sceneJobs }] = await Promise.all([
     runIds.length > 0
       ? admin
           .from('line_generation_records')
@@ -49,6 +49,12 @@ export async function GET() {
           .select('ai_profile_id, size_bytes')
           .eq('recording_source', 'ai_generated')
           .in('ai_profile_id', profileIds)
+      : Promise.resolve({ data: [] }),
+    runIds.length > 0
+      ? admin
+          .from('scene_generation_jobs')
+          .select('run_id, status')
+          .in('run_id', runIds)
       : Promise.resolve({ data: [] }),
   ]);
 
@@ -64,6 +70,15 @@ export async function GET() {
   const failedByRun = new Map<string, Array<Record<string, unknown>>>();
   const skippedByRun = new Map<string, number>();
   const profilePersistedCounts = new Map<string, number>();
+  const sceneJobCounts = new Map<string, { queued: number; processing: number; succeeded: number; failed: number; cancelled: number }>();
+
+  for (const row of (sceneJobs ?? []) as Array<Record<string, unknown>>) {
+    const runId = row.run_id as string;
+    const status = row.status as 'queued' | 'processing' | 'succeeded' | 'failed' | 'cancelled';
+    const counts = sceneJobCounts.get(runId) ?? { queued: 0, processing: 0, succeeded: 0, failed: 0, cancelled: 0 };
+    counts[status] += 1;
+    sceneJobCounts.set(runId, counts);
+  }
 
   for (const row of (lineRecords ?? []) as Array<Record<string, unknown>>) {
     const runId = row.run_id as string;
@@ -111,7 +126,7 @@ export async function GET() {
     startedAt: run.started_at,
     finishedAt: run.finished_at,
     createdAt: run.created_at,
-    aiProfileIds: run.ai_profile_ids,
+    sceneJobCounts: sceneJobCounts.get(run.id as string) ?? { queued: 0, processing: 0, succeeded: 0, failed: 0, cancelled: 0 },
     failedEntries: (failedByRun.get(run.id as string) ?? []).map((entry) => {
       const chunk = entry.chunks as {
         character?: string | null;
@@ -137,6 +152,8 @@ export async function GET() {
       totalGeneratedRecordings: recordingCount ?? 0,
       totalPersistedLines: runPayload.reduce((sum, run) => sum + run.persistedLines, 0),
       totalFailedLines: runPayload.reduce((sum, run) => sum + run.failedLines, 0),
+      totalQueuedJobs: runPayload.reduce((sum, run) => sum + run.sceneJobCounts.queued, 0),
+      totalProcessingJobs: runPayload.reduce((sum, run) => sum + run.sceneJobCounts.processing, 0),
     },
     profiles: profilePayload,
     runs: runPayload,
