@@ -186,7 +186,11 @@ export default function AiStatsPage() {
 
         <div className="space-y-3">
           {profiles.map((profile) => (
-            <div key={profile.id} className="bg-surface border border-border rounded-xl p-5">
+            <Link
+              key={profile.id}
+              href={`/stats/ai/${profile.id}`}
+              className="block bg-surface border border-border rounded-xl p-5 hover:border-gold/40 transition-colors"
+            >
               <div className="flex items-center justify-between gap-4 mb-2">
                 <div className="flex items-center gap-3 flex-wrap">
                   <span className="font-medium">{profile.displayName}</span>
@@ -212,7 +216,7 @@ export default function AiStatsPage() {
               <div className="text-xs text-muted border-t border-border pt-3">
                 Created: {formatDate(profile.createdAt)}
               </div>
-            </div>
+            </Link>
           ))}
 
           {profiles.length === 0 && (

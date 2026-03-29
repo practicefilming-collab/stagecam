@@ -32,7 +32,15 @@ interface UnrecordedScene {
   remainingLines: number;
 }
 
-export default function RoleCall({ characters, grouped }: { characters: CharacterCard[]; grouped?: boolean }) {
+export default function RoleCall({
+  characters,
+  grouped,
+  allowContinue = true,
+}: {
+  characters: CharacterCard[];
+  grouped?: boolean;
+  allowContinue?: boolean;
+}) {
   const router = useRouter();
   const { showMontage, dismissMontage } = useMontageOverlay();
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
@@ -168,7 +176,7 @@ export default function RoleCall({ characters, grouped }: { characters: Characte
               })}
             </div>
 
-            {!isComplete && (
+            {allowContinue && !isComplete && (
               <>
                 <button
                   onClick={() => toggleExpand(char)}
