@@ -5,6 +5,8 @@ import { createAdminClient } from '@/lib/supabase/admin';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
+const MAX_BATCH_JOBS = 5;
+const BATCH_TIME_BUDGET_MS = 240_000;
 
 async function kickoffNext(request: Request, runId: string) {
   const processUrl = new URL('/api/admin/ai/process', request.url);
@@ -23,6 +25,65 @@ async function kickoffNext(request: Request, runId: string) {
   });
 }
 
+async function loadRequestedJob(input: {
+  admin: ReturnType<typeof createAdminClient>;
+  jobId?: string;
+  runId?: string;
+}) {
+  if (input.jobId) {
+    const { data } = await input.admin
+      .from('scene_generation_jobs')
+      .select('id, run_id, attempt_count, status')
+      .eq('id', input.jobId)
+      .single();
+    return data;
+  }
+
+  let query = input.admin
+    .from('scene_generation_jobs')
+    .select('id, run_id, attempt_count, status')
+    .eq('status', 'queued')
+    .order('created_at', { ascending: true })
+    .limit(1);
+
+  if (input.runId) {
+    query = query.eq('run_id', input.runId);
+  }
+
+  const { data } = await query.maybeSingle();
+  return data;
+}
+
+async function claimQueuedJob(input: {
+  admin: ReturnType<typeof createAdminClient>;
+  requestedJob: {
+    id: string;
+    run_id: string;
+    attempt_count: number;
+    status: string;
+  };
+}) {
+  const { data: claimed, error: claimError } = await input.admin
+    .from('scene_generation_jobs')
+    .update({
+      status: 'processing',
+      progress_pct: 1,
+      started_at: new Date().toISOString(),
+      finished_at: null,
+      error_message: null,
+      attempt_count: (input.requestedJob.attempt_count ?? 0) + 1,
+    })
+    .eq('id', input.requestedJob.id)
+    .in('status', ['queued', 'failed'])
+    .select('id, run_id')
+    .single();
+
+  return {
+    claimed,
+    claimError,
+  };
+}
+
 export async function POST(request: Request) {
   const workerToken = process.env.AI_GENERATION_WORKER_TOKEN ?? process.env.EXPORT_WORKER_TOKEN;
   const incomingToken = request.headers.get('x-ai-generation-worker-token');
@@ -32,38 +93,8 @@ export async function POST(request: Request) {
 
   const { jobId, runId } = await request.json().catch(() => ({} as { jobId?: string; runId?: string }));
   const admin = createAdminClient();
-
-  let requestedJob:
-    | {
-        id: string;
-        run_id: string;
-        attempt_count: number;
-        status: string;
-      }
-    | null = null;
-
-  if (jobId) {
-    const { data } = await admin
-      .from('scene_generation_jobs')
-      .select('id, run_id, attempt_count, status')
-      .eq('id', jobId)
-      .single();
-    requestedJob = data;
-  } else {
-    let query = admin
-      .from('scene_generation_jobs')
-      .select('id, run_id, attempt_count, status')
-      .eq('status', 'queued')
-      .order('created_at', { ascending: true })
-      .limit(1);
-
-    if (runId) {
-      query = query.eq('run_id', runId);
-    }
-
-    const { data } = await query.maybeSingle();
-    requestedJob = data;
-  }
+  const startedAt = Date.now();
+  let requestedJob = await loadRequestedJob({ admin, jobId, runId });
 
   if (!requestedJob) {
     return NextResponse.json({ status: 'idle' });
@@ -73,61 +104,76 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: 'succeeded', jobId: requestedJob.id });
   }
 
-  const { data: claimed, error: claimError } = await admin
-    .from('scene_generation_jobs')
-    .update({
-      status: 'processing',
-      progress_pct: 1,
-      started_at: new Date().toISOString(),
-      finished_at: null,
-      error_message: null,
-      attempt_count: (requestedJob.attempt_count ?? 0) + 1,
-    })
-    .eq('id', requestedJob.id)
-    .in('status', ['queued', 'failed'])
-    .select('id, run_id')
-    .single();
+  const scopedRunId = runId ?? requestedJob.run_id;
+  let jobsProcessed = 0;
+  let jobsSucceeded = 0;
+  let jobsFailed = 0;
+  let lastClaimedJobId: string | null = null;
 
-  if (claimError || !claimed) {
-    return NextResponse.json({ status: requestedJob.status, jobId: requestedJob.id });
-  }
-
-  await recalculateGenerationRun(admin, claimed.run_id as string);
-
-  try {
-    const execution = await executeSceneGenerationJob({
+  while (requestedJob && jobsProcessed < MAX_BATCH_JOBS && Date.now() - startedAt < BATCH_TIME_BUDGET_MS) {
+    const { claimed, claimError } = await claimQueuedJob({
       admin,
-      jobId: claimed.id as string,
+      requestedJob,
     });
 
-    void kickoffNext(request, execution.run.id);
+    if (claimError || !claimed) {
+      requestedJob = await loadRequestedJob({ admin, runId: scopedRunId });
+      continue;
+    }
 
-    return NextResponse.json({
-      status: execution.job.status,
-      jobId: execution.job.id,
-      runId: execution.run.id,
-      persistedLines: execution.job.persisted_lines,
-      failedLines: execution.job.failed_lines,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Scene generation job failed';
-
-    await admin
-      .from('scene_generation_jobs')
-      .update({
-        status: 'failed',
-        progress_pct: 100,
-        error_message: message.slice(0, 900),
-        finished_at: new Date().toISOString(),
-      })
-      .eq('id', claimed.id);
-
+    lastClaimedJobId = claimed.id as string;
     await recalculateGenerationRun(admin, claimed.run_id as string);
-    void kickoffNext(request, claimed.run_id as string);
 
-    return NextResponse.json(
-      { status: 'failed', jobId: claimed.id, runId: claimed.run_id, error: message },
-      { status: 500 }
-    );
+    try {
+      const execution = await executeSceneGenerationJob({
+        admin,
+        jobId: claimed.id as string,
+      });
+
+      jobsProcessed += 1;
+      if (execution.job.status === 'succeeded') {
+        jobsSucceeded += 1;
+      } else {
+        jobsFailed += 1;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Scene generation job failed';
+
+      await admin
+        .from('scene_generation_jobs')
+        .update({
+          status: 'failed',
+          progress_pct: 100,
+          error_message: message.slice(0, 900),
+          finished_at: new Date().toISOString(),
+        })
+        .eq('id', claimed.id);
+
+      await recalculateGenerationRun(admin, claimed.run_id as string);
+      jobsProcessed += 1;
+      jobsFailed += 1;
+    }
+
+    requestedJob = await loadRequestedJob({ admin, runId: scopedRunId });
   }
+
+  const { count: jobsRemaining } = await admin
+    .from('scene_generation_jobs')
+    .select('id', { count: 'exact', head: true })
+    .eq('run_id', scopedRunId)
+    .eq('status', 'queued');
+
+  if ((jobsRemaining ?? 0) > 0) {
+    void kickoffNext(request, scopedRunId);
+  }
+
+  return NextResponse.json({
+    status: jobsProcessed > 0 ? 'processing' : 'idle',
+    jobId: lastClaimedJobId,
+    runId: scopedRunId,
+    jobsProcessed,
+    jobsSucceeded,
+    jobsFailed,
+    jobsRemaining: jobsRemaining ?? 0,
+  });
 }

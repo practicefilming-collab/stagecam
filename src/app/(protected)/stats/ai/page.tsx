@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import type { KeyboardEvent, MouseEvent } from 'react';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -42,6 +43,7 @@ interface AiRunRow {
   startedAt: string | null;
   finishedAt: string | null;
   createdAt: string;
+  isIdleWithQueuedWork: boolean;
   sceneJobCounts: {
     queued: number;
     processing: number;
@@ -150,6 +152,29 @@ export default function AiStatsPage() {
     );
   }
 
+  function openRun(runId: string) {
+    router.push(`/stats/ai/runs/${runId}`);
+  }
+
+  function handleRunCardNavigate(event: MouseEvent<HTMLElement>, runId: string) {
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest('a')) {
+      return;
+    }
+    openRun(runId);
+  }
+
+  function handleRunCardKeyDown(event: KeyboardEvent<HTMLElement>, runId: string) {
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest('a')) {
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      openRun(runId);
+    }
+  }
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-12">
       <Link href="/stats" className="text-xs text-muted hover:text-foreground transition-colors">
@@ -233,13 +258,30 @@ export default function AiStatsPage() {
 
         <div className="space-y-3">
           {runs.map((run) => (
-            <div key={run.id} className="bg-surface border border-border rounded-xl p-5">
+            <div
+              key={run.id}
+              role="link"
+              tabIndex={0}
+              onClick={(event) => handleRunCardNavigate(event, run.id)}
+              onKeyDown={(event) => handleRunCardKeyDown(event, run.id)}
+              className="bg-surface border border-border rounded-xl p-5 cursor-pointer hover:border-gold/40 transition-colors focus:outline-none focus:ring-2 focus:ring-gold/40"
+            >
               <div className="flex items-center justify-between gap-4 mb-2">
                 <div className="flex items-center gap-3 flex-wrap">
-                  <span className="font-medium">{run.scriptTitle}{run.scriptYear ? ` (${run.scriptYear})` : ''}</span>
+                  <Link
+                    href={`/stats/ai/runs/${run.id}`}
+                    className="font-medium hover:text-gold transition-colors"
+                  >
+                    {run.scriptTitle}{run.scriptYear ? ` (${run.scriptYear})` : ''}
+                  </Link>
                   <span className={`px-2 py-0.5 rounded-full text-xs ${statusClass(run.status)}`}>
-                    {run.status}
+                    {run.isIdleWithQueuedWork ? 'waiting' : run.status}
                   </span>
+                  {run.isIdleWithQueuedWork && (
+                    <span className="px-2 py-0.5 rounded-full text-xs bg-amber-500/15 text-amber-300">
+                      idle with queued work
+                    </span>
+                  )}
                 </div>
                 <span className="text-xs text-muted">{formatDate(run.createdAt)}</span>
               </div>
@@ -248,10 +290,16 @@ export default function AiStatsPage() {
                 <span>{run.persistedLines} / {run.totalLines} persisted</span>
                 <span>{run.failedLines} failed</span>
                 <span>{run.skippedLines} skipped/reused</span>
-                <span>{run.sceneJobCounts.queued} queued jobs</span>
-                <span>{run.sceneJobCounts.processing} processing jobs</span>
+                <Link href={`/stats/ai/runs/${run.id}?status=queued`} className="hover:text-gold transition-colors">
+                  {run.sceneJobCounts.queued} queued jobs
+                </Link>
+                <Link href={`/stats/ai/runs/${run.id}?status=processing`} className="hover:text-gold transition-colors">
+                  {run.sceneJobCounts.processing} processing jobs
+                </Link>
                 <span>{run.sceneJobCounts.succeeded} succeeded jobs</span>
-                <span>{run.sceneJobCounts.failed} failed jobs</span>
+                <Link href={`/stats/ai/runs/${run.id}?status=failed`} className="hover:text-gold transition-colors">
+                  {run.sceneJobCounts.failed} failed jobs
+                </Link>
               </div>
 
               <div className="flex flex-wrap gap-5 text-xs text-muted mb-3">
