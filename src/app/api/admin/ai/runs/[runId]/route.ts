@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 
 export async function GET(
-  request: Request,
+  _request: Request,
   { params }: { params: Promise<{ runId: string }> }
 ) {
   const supabase = await createClient();
@@ -84,6 +84,7 @@ export async function GET(
         failed_lines,
         attempt_count,
         error_message,
+        updated_at,
         started_at,
         finished_at,
         created_at,
@@ -122,6 +123,8 @@ export async function GET(
     if (row.status === 'failed') failedEntries.push(entry);
     if (synthesisPayload.reusedExistingRecording === true) skippedEntries.push(entry);
   }
+
+  const stalledThresholdMs = 2 * 60 * 1000;
 
   return NextResponse.json({
     run: {
@@ -164,6 +167,11 @@ export async function GET(
       failedLines: job.failed_lines,
       attemptCount: job.attempt_count,
       errorMessage: job.error_message,
+      updatedAt: job.updated_at,
+      isStalled:
+        job.status === 'processing' &&
+        typeof job.updated_at === 'string' &&
+        Date.now() - new Date(job.updated_at).getTime() > stalledThresholdMs,
       startedAt: job.started_at,
       finishedAt: job.finished_at,
       createdAt: job.created_at,

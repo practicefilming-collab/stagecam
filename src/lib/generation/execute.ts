@@ -27,6 +27,75 @@ type SceneJobExecutionResult = {
   statusCounts: Record<string, number>;
 };
 
+function clampProgress(value: number): number {
+  return Math.max(0, Math.min(100, value));
+}
+
+function summarizeLineStates(
+  lineStates: Record<string, { status: string }>,
+  eligibleLineIds: string[]
+) {
+  let persisted = 0;
+  let failed = 0;
+  let terminal = 0;
+
+  for (const lineId of eligibleLineIds) {
+    const state = lineStates[lineId];
+    if (!state) continue;
+    if (state.status === 'persisted') {
+      persisted += 1;
+      terminal += 1;
+    } else if (state.status === 'failed') {
+      failed += 1;
+      terminal += 1;
+    }
+  }
+
+  const total = eligibleLineIds.length;
+  const progressPct = total === 0
+    ? 100
+    : terminal >= total
+      ? 100
+      : clampProgress(Math.max(1, Math.round((terminal / total) * 100)));
+
+  return {
+    total,
+    persisted,
+    failed,
+    progressPct,
+  };
+}
+
+async function updateSceneJobProgress(input: {
+  admin: SupabaseClient;
+  jobId: string;
+  runId: string;
+  lineStates: Record<string, { status: string }>;
+  eligibleLineIds: string[];
+  finalized?: boolean;
+  errorMessage?: string | null;
+}) {
+  const summary = summarizeLineStates(input.lineStates, input.eligibleLineIds);
+  const updatePayload: Record<string, unknown> = {
+    total_lines: summary.total,
+    persisted_lines: summary.persisted,
+    failed_lines: summary.failed,
+    progress_pct: input.finalized ? 100 : summary.progressPct,
+  };
+
+  if (input.finalized) {
+    updatePayload.finished_at = new Date().toISOString();
+    updatePayload.error_message = input.errorMessage ?? null;
+  }
+
+  await input.admin
+    .from('scene_generation_jobs')
+    .update(updatePayload)
+    .eq('id', input.jobId);
+
+  await recalculateGenerationRun(input.admin, input.runId);
+}
+
 function formatToExtension(format: string | null): string {
   if (!format) return 'mp3';
   const lowered = format.toLowerCase();
@@ -193,6 +262,7 @@ async function insertGeneratedRecording(input: {
 
 async function executeSingleProfileRun(input: {
   admin: SupabaseClient;
+  jobId: string;
   runId: string;
   scriptId: string;
   sourceLines: GenerationSourceLine[];
@@ -326,6 +396,16 @@ async function executeSingleProfileRun(input: {
           persistedAt: new Date().toISOString(),
         };
       },
+      onLineStateChange: async ({ lineStates, eligibleLineIds, lineState }) => {
+        if (!['persisted', 'failed'].includes(lineState.status)) return;
+        await updateSceneJobProgress({
+          admin: input.admin,
+          jobId: input.jobId,
+          runId: input.runId,
+          lineStates,
+          eligibleLineIds,
+        });
+      },
     }
   );
 
@@ -430,10 +510,10 @@ export async function executeSceneGenerationJob(input: {
   await loadRun(input.admin, job.run_id);
   const profile = await loadAiProfile(input.admin, job.script_id, job.ai_profile_id);
   const sourceLines = await loadGenerationSourceLines(input.admin, job.script_id, { sceneId: job.scene_id });
-  const eligibleLineCount = sourceLines.filter((line) => !line.isSystem).length;
 
   const result = await executeSingleProfileRun({
     admin: input.admin,
+    jobId: job.id,
     runId: job.run_id,
     scriptId: job.script_id,
     sourceLines,
@@ -445,13 +525,20 @@ export async function executeSceneGenerationJob(input: {
   const counts = countGenerationStatuses(result.lineStates);
   const nextJobStatus = counts.failed > 0 ? 'failed' : 'succeeded';
 
+  await updateSceneJobProgress({
+    admin: input.admin,
+    jobId: job.id,
+    runId: job.run_id,
+    lineStates: result.lineStates,
+    eligibleLineIds: result.eligibleLineIds,
+    finalized: true,
+    errorMessage: counts.failed > 0 ? 'One or more lines failed in this scene job' : null,
+  });
+
   const { data: updatedJob, error: jobUpdateError } = await input.admin
     .from('scene_generation_jobs')
     .update({
       status: nextJobStatus,
-      total_lines: eligibleLineCount,
-      persisted_lines: counts.persisted ?? 0,
-      failed_lines: counts.failed ?? 0,
       progress_pct: 100,
       finished_at: new Date().toISOString(),
       error_message: counts.failed > 0 ? 'One or more lines failed in this scene job' : null,
@@ -463,8 +550,6 @@ export async function executeSceneGenerationJob(input: {
   if (jobUpdateError || !updatedJob) {
     throw new Error(jobUpdateError?.message ?? 'Failed to finalize scene generation job');
   }
-
-  await recalculateGenerationRun(input.admin, job.run_id);
   const updatedRun = await loadRun(input.admin, job.run_id);
 
   return {

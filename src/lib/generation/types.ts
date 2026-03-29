@@ -114,6 +114,14 @@ export interface GenerationBatchServices {
   persistArtifact?: (
     request: GenerationPersistRequest
   ) => Promise<GenerationPersistedArtifact | null> | GenerationPersistedArtifact | null;
+  onLineStateChange?: (request: {
+    runId: string;
+    scriptId: string;
+    line: GenerationSourceLine;
+    lineState: GenerationLineState;
+    lineStates: Record<string, GenerationLineState>;
+    eligibleLineIds: string[];
+  }) => Promise<void> | void;
 }
 
 export interface GenerationBatchResult {

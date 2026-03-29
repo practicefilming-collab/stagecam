@@ -111,6 +111,20 @@ function buildLineState(input: {
   };
 }
 
+async function notifyLineStateChange(
+  services: GenerationBatchServices,
+  input: {
+    runId: string;
+    scriptId: string;
+    line: GenerationSourceLine;
+    lineState: GenerationLineState;
+    lineStates: Record<string, GenerationLineState>;
+    eligibleLineIds: string[];
+  }
+) {
+  await services.onLineStateChange?.(input);
+}
+
 function shouldProcessLine(
   line: GenerationSourceLine,
   resumeState: GenerationRunSnapshot | null | undefined,
@@ -172,6 +186,14 @@ export async function runGenerationBatch(
     const canProcess = shouldProcessLine(line, input.resume, retryFailedLines);
     if (!canProcess && previous) {
       lineStates[line.id] = previous;
+      await notifyLineStateChange(services, {
+        runId: input.runId,
+        scriptId: input.scriptId,
+        line,
+        lineState: previous,
+        lineStates,
+        eligibleLineIds,
+      });
       continue;
     }
 
@@ -185,6 +207,14 @@ export async function runGenerationBatch(
         interpretation: null,
         storagePlan: null,
         error: 'No AI profile could be resolved for this line',
+      });
+      await notifyLineStateChange(services, {
+        runId: input.runId,
+        scriptId: input.scriptId,
+        line,
+        lineState: lineStates[line.id],
+        lineStates,
+        eligibleLineIds,
       });
       continue;
     }
@@ -207,6 +237,14 @@ export async function runGenerationBatch(
         interpretation,
         storagePlan: null,
         error: null,
+      });
+      await notifyLineStateChange(services, {
+        runId: input.runId,
+        scriptId: input.scriptId,
+        line,
+        lineState: lineStates[line.id],
+        lineStates,
+        eligibleLineIds,
       });
 
       const synthesis =
@@ -235,6 +273,14 @@ export async function runGenerationBatch(
         storagePlan,
         error: null,
       });
+      await notifyLineStateChange(services, {
+        runId: input.runId,
+        scriptId: input.scriptId,
+        line,
+        lineState: lineStates[line.id],
+        lineStates,
+        eligibleLineIds,
+      });
 
       const persistedArtifact = await services.persistArtifact?.({
         runId: input.runId,
@@ -257,6 +303,14 @@ export async function runGenerationBatch(
           storagePlan,
           error: null,
         });
+        await notifyLineStateChange(services, {
+          runId: input.runId,
+          scriptId: input.scriptId,
+          line,
+          lineState: lineStates[line.id],
+          lineStates,
+          eligibleLineIds,
+        });
       }
     } catch (error) {
       lineStates[line.id] = buildLineState({
@@ -267,6 +321,14 @@ export async function runGenerationBatch(
         interpretation: previous?.interpretation ?? null,
         storagePlan: previous?.storagePlan ?? null,
         error: error instanceof Error ? error.message : 'Generation failed',
+      });
+      await notifyLineStateChange(services, {
+        runId: input.runId,
+        scriptId: input.scriptId,
+        line,
+        lineState: lineStates[line.id],
+        lineStates,
+        eligibleLineIds,
       });
     }
   }
