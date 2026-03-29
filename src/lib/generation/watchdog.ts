@@ -189,8 +189,22 @@ export async function runAiGenerationWatchdog(input: {
       });
     }
 
-    const recalculated = await recalculateGenerationRun(input.admin, run.id);
-    const isIdleWithQueuedWork = recalculated.queuedJobs > 0 && recalculated.processingJobs === 0;
+    await recalculateGenerationRun(input.admin, run.id);
+
+    const refreshedRunJobs = [
+      ...runJobs.filter((job) => job.status !== 'processing'),
+      ...staleProcessingJobs.map((job) => ({
+        ...job,
+        status: 'queued' as const,
+        started_at: null,
+        finished_at: null,
+        error_message: 'Watchdog recovered stale processing job after inactivity.',
+      })),
+    ];
+    const queuedJobs = refreshedRunJobs.filter((job) => job.status === 'queued').length;
+    const processingJobs = refreshedRunJobs.filter((job) => job.status === 'processing').length;
+    const failedJobs = refreshedRunJobs.filter((job) => job.status === 'failed').length;
+    const isIdleWithQueuedWork = queuedJobs > 0 && processingJobs === 0;
     const lastKickoffAt = extractLastKickoffAt(run.retry_policy);
     const inCooldown = isOlderThan(lastKickoffAt, WATCHDOG_COOLDOWN_MS) === false && Boolean(lastKickoffAt);
 
@@ -214,9 +228,9 @@ export async function runAiGenerationWatchdog(input: {
 
     runSummaries.push({
       runId: run.id,
-      queuedJobs: recalculated.queuedJobs,
-      processingJobs: recalculated.processingJobs,
-      failedJobs: recalculated.failedJobs,
+      queuedJobs,
+      processingJobs,
+      failedJobs,
       staleProcessingJobsRecovered: staleProcessingJobs.length,
       restartTriggered,
       skippedByCooldown,
