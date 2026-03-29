@@ -64,6 +64,7 @@ export async function synthesizeWithXaiTts(input: {
   const requestPayload = {
     text: expressiveText,
     voice_id: voiceId,
+    language: 'en-US',
     output_format: {
       codec: 'mp3',
       sample_rate: 24000,
