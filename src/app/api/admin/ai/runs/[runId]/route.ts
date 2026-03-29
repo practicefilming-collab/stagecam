@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { isAdmin } from '@/lib/admin';
+import { runAiGenerationWatchdog } from '@/lib/generation/watchdog';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ runId: string }> }
 ) {
   const supabase = await createClient();
@@ -19,6 +20,11 @@ export async function GET(
 
   const { runId } = await params;
   const admin = createAdminClient();
+  await runAiGenerationWatchdog({
+    admin,
+    baseUrl: request.url,
+    runId,
+  });
 
   const { data: run, error } = await admin
     .from('script_generation_runs')
@@ -125,6 +131,11 @@ export async function GET(
   }
 
   const stalledThresholdMs = 2 * 60 * 1000;
+  const processingJobs = (sceneJobs ?? []).filter((job) => job.status === 'processing').length;
+  const queuedJobs = (sceneJobs ?? []).filter((job) => job.status === 'queued').length;
+  const succeededJobs = (sceneJobs ?? []).filter((job) => job.status === 'succeeded').length;
+  const failedJobs = (sceneJobs ?? []).filter((job) => job.status === 'failed').length;
+  const cancelledJobs = (sceneJobs ?? []).filter((job) => job.status === 'cancelled').length;
 
   return NextResponse.json({
     run: {
@@ -140,6 +151,12 @@ export async function GET(
       persistedLines: run.persisted_lines,
       failedLines: run.failed_lines,
       errorMessage: run.error_message,
+      queuedJobs,
+      processingJobs,
+      succeededJobs,
+      failedJobs,
+      cancelledJobs,
+      isIdleWithQueuedWork: queuedJobs > 0 && processingJobs === 0,
       startedAt: run.started_at,
       finishedAt: run.finished_at,
       createdAt: run.created_at,

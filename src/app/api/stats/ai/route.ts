@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { isAdmin } from '@/lib/admin';
+import { runAiGenerationWatchdog } from '@/lib/generation/watchdog';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -15,6 +16,10 @@ export async function GET() {
   }
 
   const admin = createAdminClient();
+  await runAiGenerationWatchdog({
+    admin,
+    baseUrl: request.url,
+  });
 
   const [{ data: profiles }, { data: runs }, { count: recordingCount }] = await Promise.all([
     admin
@@ -114,11 +119,20 @@ export async function GET() {
   }));
 
   const runPayload = (runs ?? []).map((run) => ({
+    sceneJobCounts: sceneJobCounts.get(run.id as string) ?? { queued: 0, processing: 0, succeeded: 0, failed: 0, cancelled: 0 },
     id: run.id,
     scriptId: run.script_id,
     scriptTitle: (run.scripts as { title?: string } | null)?.title ?? 'Unknown script',
     scriptYear: (run.scripts as { year?: number | null } | null)?.year ?? null,
-    status: run.status,
+    status:
+      (sceneJobCounts.get(run.id as string)?.processing ?? 0) > 0
+        ? 'processing'
+        : (sceneJobCounts.get(run.id as string)?.queued ?? 0) > 0
+          ? 'queued'
+          : (run.status as string),
+    isIdleWithQueuedWork:
+      (sceneJobCounts.get(run.id as string)?.queued ?? 0) > 0 &&
+      (sceneJobCounts.get(run.id as string)?.processing ?? 0) === 0,
     totalLines: run.total_lines,
     persistedLines: run.persisted_lines,
     failedLines: run.failed_lines,
@@ -126,7 +140,6 @@ export async function GET() {
     startedAt: run.started_at,
     finishedAt: run.finished_at,
     createdAt: run.created_at,
-    sceneJobCounts: sceneJobCounts.get(run.id as string) ?? { queued: 0, processing: 0, succeeded: 0, failed: 0, cancelled: 0 },
     failedEntries: (failedByRun.get(run.id as string) ?? []).map((entry) => {
       const chunk = entry.chunks as {
         character?: string | null;

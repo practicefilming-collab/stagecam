@@ -24,6 +24,12 @@ interface RunDetail {
   persistedLines: number;
   failedLines: number;
   errorMessage: string | null;
+  queuedJobs: number;
+  processingJobs: number;
+  succeededJobs: number;
+  failedJobs: number;
+  cancelledJobs: number;
+  isIdleWithQueuedWork: boolean;
   startedAt: string | null;
   finishedAt: string | null;
   createdAt: string;
@@ -280,8 +286,13 @@ export default function AiRunDetailPage() {
               {run.scriptTitle}{run.scriptYear ? ` (${run.scriptYear})` : ''}
             </h1>
             <span className={`px-2 py-0.5 rounded-full text-xs ${statusClass(run.status)}`}>
-              {run.status}
+              {run.isIdleWithQueuedWork ? 'waiting' : run.status}
             </span>
+            {run.isIdleWithQueuedWork && (
+              <span className="px-2 py-0.5 rounded-full text-xs bg-amber-500/15 text-amber-300">
+                idle with queued work
+              </span>
+            )}
           </div>
           <p className="text-sm text-muted mt-1">
             Run {run.id} · {run.profiles.length} voice{run.profiles.length !== 1 ? 's' : ''}
@@ -344,6 +355,12 @@ export default function AiRunDetailPage() {
 
         {run.errorMessage && (
           <p className="text-sm text-red-300 mt-3">{run.errorMessage}</p>
+        )}
+
+        {run.isIdleWithQueuedWork && (
+          <p className="text-sm text-amber-300 mt-3">
+            This run has queued work but no active processing job. The watchdog will retry automatically, and Kickoff can resume it immediately.
+          </p>
         )}
       </section>
 
