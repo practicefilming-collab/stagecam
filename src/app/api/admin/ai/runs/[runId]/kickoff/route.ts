@@ -28,7 +28,24 @@ export async function POST(
     return NextResponse.json({ error: 'Run not found' }, { status: 404 });
   }
 
-  if (run.status === 'processing' || run.status === 'succeeded') {
+  if (run.status === 'succeeded') {
+    return NextResponse.json({ status: run.status });
+  }
+
+  const { data: jobs } = await admin
+    .from('scene_generation_jobs')
+    .select('id, status')
+    .eq('run_id', runId);
+
+  const queuedJobs = (jobs ?? []).filter((job) => job.status === 'queued').length;
+  const failedJobs = (jobs ?? []).filter((job) => job.status === 'failed').length;
+  const processingJobs = (jobs ?? []).filter((job) => job.status === 'processing').length;
+
+  if (queuedJobs === 0 && failedJobs === 0 && processingJobs > 0) {
+    return NextResponse.json({ status: 'processing' });
+  }
+
+  if (queuedJobs === 0 && failedJobs === 0 && processingJobs === 0) {
     return NextResponse.json({ status: run.status });
   }
 
@@ -45,5 +62,10 @@ export async function POST(
     body: JSON.stringify({ runId }),
   }).catch(() => {});
 
-  return NextResponse.json({ status: 'queued' }, { status: 202 });
+  return NextResponse.json({
+    status: queuedJobs > 0 ? 'queued' : 'processing',
+    queuedJobs,
+    failedJobs,
+    processingJobs,
+  }, { status: 202 });
 }
