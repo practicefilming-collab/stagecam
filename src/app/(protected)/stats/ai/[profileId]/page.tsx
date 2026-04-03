@@ -62,6 +62,24 @@ interface RecentFailure {
   sceneHeading: string | null;
 }
 
+interface RecordingBreakdownEntry {
+  recordingId: string;
+  lineId: string;
+  type: string;
+  character: string | null;
+  lineInScene: number;
+  lineText: string;
+  createdAt: string;
+  sceneId: string;
+  sceneNumber: number;
+  sceneHeading: string | null;
+  actNumber: number;
+  scriptId: string;
+  scriptTitle: string;
+  scriptYear: number | null;
+  scriptSlug: string | null;
+}
+
 interface VoiceVerificationSample {
   id: string;
   status: string;
@@ -142,7 +160,13 @@ export default function AiProfileStatsPage() {
   const [verifyBusy, setVerifyBusy] = useState(false);
   const [verifyMessage, setVerifyMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [highlightedSampleId, setHighlightedSampleId] = useState<string | null>(null);
+  const [selectedRoleKey, setSelectedRoleKey] = useState<string | null>(null);
+  const [recordings, setRecordings] = useState<RecordingBreakdownEntry[] | null>(null);
+  const [recordingsLoading, setRecordingsLoading] = useState(false);
+  const [recordingsError, setRecordingsError] = useState('');
   const voiceVerificationRef = useRef<HTMLElement | null>(null);
+  const rolesRef = useRef<HTMLElement | null>(null);
+  const recordingsRef = useRef<HTMLElement | null>(null);
 
   async function reload() {
     const res = await fetch(`/api/stats/ai/${profileId}`);
@@ -163,6 +187,12 @@ export default function AiProfileStatsPage() {
   useEffect(() => {
     void reload();
   }, [profileId, router]);
+
+  useEffect(() => {
+    setRecordings(null);
+    setRecordingsError('');
+    setSelectedRoleKey(null);
+  }, [profileId]);
 
   async function verifyVoice() {
     setVerifyBusy(true);
@@ -191,6 +221,55 @@ export default function AiProfileStatsPage() {
     } finally {
       setVerifyBusy(false);
     }
+  }
+
+  function scrollToSection(ref: { current: HTMLElement | null }) {
+    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function getRoleKey(role: Pick<CharacterCard, 'scriptId' | 'character'>) {
+    return `${role.scriptId ?? 'unknown'}::${role.character}`;
+  }
+
+  async function loadRecordings(role?: CharacterCard) {
+    if (recordingsLoading) return;
+
+    setRecordingsLoading(true);
+    setRecordingsError('');
+
+    try {
+      const searchParams = new URLSearchParams({ limit: '40' });
+      if (role?.scriptId) searchParams.set('scriptId', role.scriptId);
+      if (role?.character) searchParams.set('character', role.character);
+
+      const res = await fetch(`/api/stats/ai/${profileId}/recordings?${searchParams.toString()}`);
+      const body = await res.json().catch(() => ({ error: 'Failed to load recordings' }));
+
+      if (!res.ok) {
+        setRecordingsError(body.error || 'Failed to load recordings');
+        return;
+      }
+
+      setRecordings(body.recordings ?? []);
+    } finally {
+      setRecordingsLoading(false);
+    }
+  }
+
+  async function handleRecordingsClick() {
+    scrollToSection(recordingsRef);
+    setSelectedRoleKey(null);
+    if (recordings === null) {
+      await loadRecordings();
+    }
+  }
+
+  async function handleRoleClick(role: CharacterCard) {
+    setSelectedRoleKey(getRoleKey(role));
+    await loadRecordings(role);
+    window.setTimeout(() => {
+      scrollToSection(recordingsRef);
+    }, 80);
   }
 
   if (loading) {
@@ -305,14 +384,22 @@ export default function AiProfileStatsPage() {
       </section>
 
       <div className="grid grid-cols-3 gap-3 mb-4">
-        <div className="bg-surface border border-gold/20 rounded-xl p-4 text-center">
+        <button
+          type="button"
+          onClick={() => void handleRecordingsClick()}
+          className="bg-surface border border-gold/20 rounded-xl p-4 text-center hover:border-gold/40 hover:bg-gold/5 transition-colors"
+        >
           <p className="text-2xl font-bold text-gold">{summary.totalRecordings}</p>
           <p className="text-xs text-muted mt-1">AI Recordings</p>
-        </div>
-        <div className="bg-surface border border-gold/20 rounded-xl p-4 text-center">
+        </button>
+        <button
+          type="button"
+          onClick={() => scrollToSection(rolesRef)}
+          className="bg-surface border border-gold/20 rounded-xl p-4 text-center hover:border-gold/40 hover:bg-gold/5 transition-colors"
+        >
           <p className="text-2xl font-bold text-gold">{characters.length}</p>
           <p className="text-xs text-muted mt-1">Roles Played</p>
-        </div>
+        </button>
         <div className="bg-surface border border-gold/20 rounded-xl p-4 text-center">
           <p className="text-2xl font-bold text-gold">{summary.uniqueLinesRecorded}</p>
           <p className="text-xs text-muted mt-1">Unique Lines</p>
@@ -351,8 +438,64 @@ export default function AiProfileStatsPage() {
         </div>
       )}
 
+      <section ref={rolesRef} className="mt-8">
+        <div className="flex items-center justify-between gap-4 flex-wrap mb-3">
+          <h2 className="text-xs text-muted uppercase tracking-wider">Roles Breakdown</h2>
+          {selectedRoleKey && (
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedRoleKey(null);
+                setRecordings(null);
+                setRecordingsError('');
+              }}
+              className="text-xs text-gold hover:text-gold-dim transition-colors"
+            >
+              Clear role filter
+            </button>
+          )}
+        </div>
+        {characters.length === 0 ? (
+          <div className="bg-surface border border-border rounded-2xl p-4 text-sm text-muted">
+            No recorded roles yet.
+          </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {characters.map((role) => {
+              const roleKey = getRoleKey(role);
+              const isSelected = selectedRoleKey === roleKey;
+              return (
+                <button
+                  key={roleKey}
+                  type="button"
+                  onClick={() => void handleRoleClick(role)}
+                  className={`text-left bg-surface border rounded-2xl p-4 transition-colors ${
+                    isSelected ? 'border-gold bg-gold/5' : 'border-border hover:border-gold/40'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-gold">{role.character}</p>
+                      <p className="text-xs text-muted mt-0.5">
+                        {role.scriptTitle}{role.scriptYear ? ` (${role.scriptYear})` : ''}
+                      </p>
+                    </div>
+                    <span className="text-xs text-muted">
+                      {role.totalRecorded} line{role.totalRecorded !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted mt-3">
+                    {role.totalLines > 0 ? `${role.completionPct}% complete` : 'No dialogue coverage'}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
       {groups.map((group) => (
-        <div key={group.title}>
+        <div key={group.title} className="mt-8">
           {isGrouped && (
             <h2 className="text-sm font-medium text-muted mb-2">
               {group.title}{group.year ? ` (${group.year})` : ''}
@@ -362,6 +505,68 @@ export default function AiProfileStatsPage() {
           <RoleCall characters={group.chars} grouped={isGrouped} allowContinue={false} />
         </div>
       ))}
+
+      <section ref={recordingsRef} className="mt-8">
+        <div className="flex items-center justify-between gap-4 flex-wrap mb-3">
+          <div>
+            <h2 className="text-xs text-muted uppercase tracking-wider">Recording Review</h2>
+            <p className="text-xs text-muted mt-1">
+              Open the panel on the exact line for quick playback review.
+            </p>
+          </div>
+          {selectedRoleKey && (
+            <span className="text-xs text-gold">
+              Filtered to {characters.find((role) => getRoleKey(role) === selectedRoleKey)?.character ?? 'selected role'}
+            </span>
+          )}
+        </div>
+        <div className="space-y-3">
+          {recordingsLoading && (
+            <div className="bg-surface border border-border rounded-2xl p-4 text-sm text-muted">
+              Loading recordings...
+            </div>
+          )}
+          {!recordingsLoading && recordingsError && (
+            <div className="bg-surface border border-red-500/30 rounded-2xl p-4 text-sm text-red-300">
+              {recordingsError}
+            </div>
+          )}
+          {!recordingsLoading && !recordingsError && recordings === null && (
+            <div className="bg-surface border border-border rounded-2xl p-4 text-sm text-muted">
+              Click `AI Recordings` or choose a role above to load review links.
+            </div>
+          )}
+          {!recordingsLoading && !recordingsError && recordings !== null && recordings.length === 0 && (
+            <div className="bg-surface border border-border rounded-2xl p-4 text-sm text-muted">
+              No recordings match this filter.
+            </div>
+          )}
+          {!recordingsLoading && !recordingsError && (recordings ?? []).map((recording) => (
+            <Link
+              key={recording.recordingId}
+              href={`/panel/${recording.sceneId}?lineId=${recording.lineId}&recordingId=${recording.recordingId}`}
+              className="block bg-surface border border-border rounded-2xl p-4 hover:border-gold/40 hover:bg-gold/5 transition-colors"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium text-gold">
+                    {recording.character ?? 'Narrator'}
+                    <span className="text-muted font-normal">
+                      {' '}· Scene {recording.sceneNumber}
+                      {recording.lineInScene ? ` · Line ${recording.lineInScene}` : ''}
+                    </span>
+                  </p>
+                  <p className="text-xs text-muted mt-1">
+                    {recording.scriptTitle}{recording.scriptYear ? ` (${recording.scriptYear})` : ''} · {recording.sceneHeading || 'Untitled scene'}
+                  </p>
+                </div>
+                <span className="text-xs text-muted whitespace-nowrap">{formatDate(recording.createdAt)}</span>
+              </div>
+              <p className="text-sm text-foreground/90 mt-3 line-clamp-2">{recording.lineText}</p>
+            </Link>
+          ))}
+        </div>
+      </section>
 
       {recentScenes.length > 0 && (
         <section className="mt-8">

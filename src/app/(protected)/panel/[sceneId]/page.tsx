@@ -1,12 +1,14 @@
 'use client';
 
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import ScenePlayer from '@/components/player/scene-player';
 import Link from 'next/link';
 
 export default function PanelViewerPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const sceneId = params.sceneId as string;
+  const initialLineId = searchParams.get('lineId');
 
   return (
     <div className="max-w-lg mx-auto px-4 py-8 min-h-[calc(100vh-3.5rem)]">
@@ -20,7 +22,7 @@ export default function PanelViewerPage() {
         </Link>
       </div>
 
-      <ScenePlayer sceneId={sceneId} />
+      <ScenePlayer sceneId={sceneId} initialLineId={initialLineId} />
     </div>
   );
 }

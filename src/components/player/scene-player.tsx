@@ -30,6 +30,7 @@ interface SceneInfo {
 
 interface ScenePlayerProps {
   sceneId: string;
+  initialLineId?: string | null;
 }
 
 interface ExportJobStatusResponse {
@@ -40,7 +41,7 @@ interface ExportJobStatusResponse {
   downloadUrl: string | null;
 }
 
-export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
+export default function ScenePlayer({ sceneId, initialLineId }: ScenePlayerProps) {
   const [scene, setScene] = useState<SceneInfo | null>(null);
   const [items, setItems] = useState<PlaybackItem[]>([]);
   const [stats, setStats] = useState({ totalLines: 0, rehearsableLines: 0, recordedLines: 0, ttsLines: 0, systemLines: 0 });
@@ -51,6 +52,7 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState('');
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
+  const [focusedLineId, setFocusedLineId] = useState<string | null>(initialLineId ?? null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -73,6 +75,19 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
     }
     load();
   }, [sceneId]);
+
+  useEffect(() => {
+    setFocusedLineId(initialLineId ?? null);
+  }, [initialLineId]);
+
+  useEffect(() => {
+    if (!initialLineId || items.length === 0) return;
+    const targetIdx = items.findIndex((item) => item.lineId === initialLineId);
+    if (targetIdx >= 0) {
+      setCurrentIdx(targetIdx);
+      setFocusedLineId(initialLineId);
+    }
+  }, [initialLineId, items]);
 
   const current = items[currentIdx] ?? null;
   const currentRecordingIsAudio = Boolean(
@@ -111,7 +126,6 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
 
   const handlePlay = () => {
     setPlaying(true);
-    setCurrentIdx(0);
   };
 
   const handlePause = () => {
@@ -241,6 +255,12 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
             </p>
           </div>
         </div>
+        {focusedLineId && current?.lineId === focusedLineId && (
+          <p className="text-xs text-gold mt-2">
+            Focused review line {current.lineInScene}
+            {current.character ? ` · ${current.character}` : ' · Narrator'}
+          </p>
+        )}
         {/* Progress bar */}
         <div className="h-1 bg-border rounded-full mt-2">
           <div
@@ -390,6 +410,8 @@ export default function ScenePlayer({ sceneId }: ScenePlayerProps) {
             className={`flex-shrink-0 h-2 rounded-full transition-all ${
               i === currentIdx
                 ? 'w-6 bg-gold'
+                : focusedLineId === item.lineId
+                ? 'w-3 bg-gold/70 hover:bg-gold'
                 : item.isSystem
                 ? 'w-2 bg-gold/30 hover:bg-gold/50'
                 : item.hasRecording
