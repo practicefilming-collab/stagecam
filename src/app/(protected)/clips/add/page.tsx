@@ -4,9 +4,25 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ClipCreator, ClipSound, ClipCollection } from '@/lib/types';
 
+interface Metadata {
+  display_title: string;
+  creator_name: string;
+  creator_handle: string;
+  duration_ms: number;
+  description: string;
+  source_platform: string;
+  source_url: string;
+  error?: string;
+}
+
 export default function AddClipPage() {
   const router = useRouter();
   const [sourceUrl, setSourceUrl] = useState('');
+  const [metadata, setMetadata] = useState<Metadata | null>(null);
+  const [fetching, setFetching] = useState(false);
+  const [fetchError, setFetchError] = useState('');
+
+  // Editable fields (populated from metadata)
   const [displayTitle, setDisplayTitle] = useState('');
   const [contentType, setContentType] = useState('spoken_word');
   const [energyLevel, setEnergyLevel] = useState('medium');
@@ -18,7 +34,7 @@ export default function AddClipPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  // Load metadata options
+  // Metadata options
   const [creators, setCreators] = useState<ClipCreator[]>([]);
   const [sounds, setSounds] = useState<ClipSound[]>([]);
   const [collections, setCollections] = useState<ClipCollection[]>([]);
@@ -34,6 +50,31 @@ export default function AddClipPage() {
       if (Array.isArray(col)) setCollections(col);
     });
   }, []);
+
+  const fetchMetadata = async () => {
+    if (!sourceUrl.trim()) return;
+    setFetching(true);
+    setFetchError('');
+    setMetadata(null);
+
+    const res = await fetch('/api/clips/metadata', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: sourceUrl.trim() }),
+    });
+
+    const data: Metadata = await res.json();
+    setMetadata(data);
+
+    if (data.error) {
+      setFetchError(data.error);
+    }
+
+    // Auto-fill editable fields
+    setDisplayTitle(data.display_title || '');
+
+    setFetching(false);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,119 +126,154 @@ export default function AddClipPage() {
     <div className="max-w-xl mx-auto px-4 py-12">
       <h1 className="text-2xl font-bold text-gold mb-8">Add Clip</h1>
 
-      <form onSubmit={handleSubmit} className="space-y-5">
-        <div>
-          <label className={labelClass}>TikTok URL *</label>
+      {/* Step 1: Paste URL */}
+      <div className="mb-6">
+        <label className={labelClass}>Paste TikTok URL</label>
+        <div className="flex gap-3">
           <input
             type="url"
             value={sourceUrl}
             onChange={(e) => setSourceUrl(e.target.value)}
             placeholder="https://www.tiktok.com/@user/video/..."
-            className={inputClass}
-            required
+            className={`${inputClass} flex-1`}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); fetchMetadata(); } }}
           />
+          <button
+            onClick={fetchMetadata}
+            disabled={fetching || !sourceUrl.trim()}
+            className="px-5 py-3 bg-gold text-black rounded-lg font-medium text-sm hover:bg-gold-dim transition-colors disabled:opacity-50 whitespace-nowrap"
+          >
+            {fetching ? 'Fetching...' : 'Fetch'}
+          </button>
         </div>
+        {fetchError && (
+          <p className="text-yellow-400 text-xs mt-2">{fetchError} — you can fill in the details manually below.</p>
+        )}
+      </div>
 
-        <div>
-          <label className={labelClass}>Display Title *</label>
-          <input
-            type="text"
-            value={displayTitle}
-            onChange={(e) => setDisplayTitle(e.target.value)}
-            placeholder="Short descriptive title for this clip"
-            className={inputClass}
-            required
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={labelClass}>Content Type</label>
-            <select value={contentType} onChange={(e) => setContentType(e.target.value)} className={selectClass}>
-              {contentTypes.map((t) => (
-                <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className={labelClass}>Energy Level</label>
-            <select value={energyLevel} onChange={(e) => setEnergyLevel(e.target.value)} className={selectClass}>
-              {energyLevels.map((l) => (
-                <option key={l} value={l}>{l}</option>
-              ))}
-            </select>
+      {/* Step 2: Auto-filled metadata preview */}
+      {metadata && !fetching && (
+        <div className="bg-surface border border-border rounded-xl p-4 mb-6">
+          <p className="text-xs text-muted mb-2">Auto-detected from URL</p>
+          <div className="space-y-1 text-sm">
+            {metadata.display_title && (
+              <p><span className="text-muted">Title:</span> {metadata.display_title}</p>
+            )}
+            {metadata.creator_name && (
+              <p><span className="text-muted">Creator:</span> {metadata.creator_name} {metadata.creator_handle}</p>
+            )}
+            {metadata.duration_ms > 0 && (
+              <p><span className="text-muted">Duration:</span> {Math.round(metadata.duration_ms / 1000)}s</p>
+            )}
+            <p><span className="text-muted">Platform:</span> {metadata.source_platform.replace(/_/g, ' ')}</p>
           </div>
         </div>
+      )}
 
-        <div className="grid grid-cols-2 gap-4">
+      {/* Step 3: Editable form (shown after fetch or immediately if user wants manual entry) */}
+      {(metadata || !fetching) && (
+        <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label className={labelClass}>Difficulty (1-5)</label>
+            <label className={labelClass}>Display Title *</label>
             <input
-              type="number"
-              min={1}
-              max={5}
-              value={difficultyRating}
-              onChange={(e) => setDifficultyRating(e.target.value ? parseInt(e.target.value) : '')}
+              type="text"
+              value={displayTitle}
+              onChange={(e) => setDisplayTitle(e.target.value)}
+              placeholder={metadata ? 'Edit the auto-filled title...' : 'Enter a title for this clip'}
               className={inputClass}
-              placeholder="Optional"
+              required
             />
           </div>
 
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={labelClass}>Content Type</label>
+              <select value={contentType} onChange={(e) => setContentType(e.target.value)} className={selectClass}>
+                {contentTypes.map((t) => (
+                  <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className={labelClass}>Energy Level</label>
+              <select value={energyLevel} onChange={(e) => setEnergyLevel(e.target.value)} className={selectClass}>
+                {energyLevels.map((l) => (
+                  <option key={l} value={l}>{l}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={labelClass}>Difficulty (1-5)</label>
+              <input
+                type="number"
+                min={1}
+                max={5}
+                value={difficultyRating}
+                onChange={(e) => setDifficultyRating(e.target.value ? parseInt(e.target.value) : '')}
+                className={inputClass}
+                placeholder="Optional"
+              />
+            </div>
+
+            <div>
+              <label className={labelClass}>Category</label>
+              <select value={categoryBucket} onChange={(e) => setCategoryBucket(e.target.value)} className={selectClass}>
+                {categoryBuckets.map((b) => (
+                  <option key={b} value={b}>{b.replace(/_/g, ' ')}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
           <div>
-            <label className={labelClass}>Category</label>
-            <select value={categoryBucket} onChange={(e) => setCategoryBucket(e.target.value)} className={selectClass}>
-              {categoryBuckets.map((b) => (
-                <option key={b} value={b}>{b.replace(/_/g, ' ')}</option>
+            <label className={labelClass}>Creator</label>
+            <select value={creatorId} onChange={(e) => setCreatorId(e.target.value)} className={selectClass}>
+              <option value="">None</option>
+              {creators.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.display_name}{c.platform_handle ? ` (${c.platform_handle})` : ''}
+                </option>
               ))}
             </select>
           </div>
-        </div>
 
-        <div>
-          <label className={labelClass}>Creator</label>
-          <select value={creatorId} onChange={(e) => setCreatorId(e.target.value)} className={selectClass}>
-            <option value="">None</option>
-            {creators.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.display_name}{c.platform_handle ? ` (${c.platform_handle})` : ''}
-              </option>
-            ))}
-          </select>
-        </div>
+          <div>
+            <label className={labelClass}>Sound</label>
+            <select value={soundId} onChange={(e) => setSoundId(e.target.value)} className={selectClass}>
+              <option value="">None</option>
+              {sounds.map((s) => (
+                <option key={s.id} value={s.id}>{s.display_name}</option>
+              ))}
+            </select>
+          </div>
 
-        <div>
-          <label className={labelClass}>Sound</label>
-          <select value={soundId} onChange={(e) => setSoundId(e.target.value)} className={selectClass}>
-            <option value="">None</option>
-            {sounds.map((s) => (
-              <option key={s.id} value={s.id}>{s.display_name}</option>
-            ))}
-          </select>
-        </div>
+          <div>
+            <label className={labelClass}>Collection</label>
+            <select value={collectionId} onChange={(e) => setCollectionId(e.target.value)} className={selectClass}>
+              <option value="">None</option>
+              {collections.map((col) => (
+                <option key={col.id} value={col.id}>{col.display_name}</option>
+              ))}
+            </select>
+          </div>
 
-        <div>
-          <label className={labelClass}>Collection</label>
-          <select value={collectionId} onChange={(e) => setCollectionId(e.target.value)} className={selectClass}>
-            <option value="">None</option>
-            {collections.map((col) => (
-              <option key={col.id} value={col.id}>{col.display_name}</option>
-            ))}
-          </select>
-        </div>
+          {error && (
+            <p className="text-red-400 text-sm">{error}</p>
+          )}
 
-        {error && (
-          <p className="text-red-400 text-sm">{error}</p>
-        )}
-
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full py-3 bg-gold text-black rounded-lg font-medium text-sm hover:bg-gold-dim transition-colors disabled:opacity-50"
-        >
-          {submitting ? 'Creating...' : 'Add Clip'}
-        </button>
-      </form>
+          <button
+            type="submit"
+            disabled={submitting || !displayTitle.trim() || !sourceUrl.trim()}
+            className="w-full py-3 bg-gold text-black rounded-lg font-medium text-sm hover:bg-gold-dim transition-colors disabled:opacity-50"
+          >
+            {submitting ? 'Creating...' : 'Add Clip'}
+          </button>
+        </form>
+      )}
     </div>
   );
 }
