@@ -36,10 +36,14 @@ export default function RoleCall({
   characters,
   grouped,
   allowContinue = true,
+  onCharacterSelect,
+  selectedCharacterKey,
 }: {
   characters: CharacterCard[];
   grouped?: boolean;
   allowContinue?: boolean;
+  onCharacterSelect?: (character: CharacterCard) => void;
+  selectedCharacterKey?: string | null;
 }) {
   const router = useRouter();
   const { showMontage, dismissMontage } = useMontageOverlay();
@@ -122,14 +126,19 @@ export default function RoleCall({
         const isComplete = char.completionPct === 100;
         const key = `${char.character}::${char.scriptId}`;
         const isExpanded = expandedKey === key;
+        const isSelected = selectedCharacterKey === key;
+        const isReviewSelectable = !allowContinue && Boolean(onCharacterSelect);
 
-        return (
-          <div
-            key={`${char.character}-${char.scriptSlug}`}
-            className={`bg-surface border rounded-2xl p-5 transition-colors ${
-              isComplete ? 'border-gold' : 'border-border'
-            }`}
-          >
+        const cardClasses = `bg-surface border rounded-2xl p-5 transition-colors ${
+          isSelected
+            ? 'border-gold bg-gold/5'
+            : isComplete
+            ? 'border-gold'
+            : 'border-border'
+        }`;
+
+        const cardBody = (
+          <>
             <div className="flex items-center justify-between mb-3">
               <div>
                 <h3 className={`font-semibold ${isComplete ? 'text-gold' : 'text-foreground'}`}>
@@ -147,7 +156,6 @@ export default function RoleCall({
               </span>
             </div>
 
-            {/* Overall progress bar */}
             <div className="h-2 bg-border rounded-full overflow-hidden mb-3">
               <div
                 className={`h-full rounded-full transition-all ${isComplete ? 'bg-gold' : 'bg-gold/70'}`}
@@ -155,7 +163,6 @@ export default function RoleCall({
               />
             </div>
 
-            {/* Per-act breakdown */}
             <div className="space-y-1.5">
               {char.acts.map((act) => {
                 const actComplete = act.total > 0 && act.recorded >= act.total;
@@ -175,6 +182,25 @@ export default function RoleCall({
                 );
               })}
             </div>
+          </>
+        );
+
+        if (isReviewSelectable) {
+          return (
+            <button
+              key={`${char.character}-${char.scriptSlug}`}
+              type="button"
+              onClick={() => onCharacterSelect?.(char)}
+              className={`w-full text-left ${cardClasses} hover:border-gold/40 hover:bg-gold/5`}
+            >
+              {cardBody}
+            </button>
+          );
+        }
+
+        return (
+          <div key={`${char.character}-${char.scriptSlug}`} className={cardClasses}>
+            {cardBody}
 
             {allowContinue && !isComplete && (
               <>

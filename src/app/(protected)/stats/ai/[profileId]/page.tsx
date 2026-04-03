@@ -438,72 +438,39 @@ export default function AiProfileStatsPage() {
         </div>
       )}
 
-      <section ref={rolesRef} className="mt-8">
-        <div className="flex items-center justify-between gap-4 flex-wrap mb-3">
-          <h2 className="text-xs text-muted uppercase tracking-wider">Roles Breakdown</h2>
-          {selectedRoleKey && (
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedRoleKey(null);
-                setRecordings(null);
-                setRecordingsError('');
-              }}
-              className="text-xs text-gold hover:text-gold-dim transition-colors"
-            >
-              Clear role filter
-            </button>
-          )}
-        </div>
-        {characters.length === 0 ? (
-          <div className="bg-surface border border-border rounded-2xl p-4 text-sm text-muted">
-            No recorded roles yet.
+      {groups.map((group, index) => (
+        <section key={group.title} ref={index === 0 ? rolesRef : undefined} className="mt-8">
+          <div className="flex items-center justify-between gap-4 flex-wrap mb-2">
+            <div>
+              {isGrouped && (
+                <h2 className="text-sm font-medium text-muted">
+                  {group.title}{group.year ? ` (${group.year})` : ''}
+                </h2>
+              )}
+              <p className="text-xs text-muted/50">Click a role to load its review lines.</p>
+            </div>
+            {selectedRoleKey && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedRoleKey(null);
+                  setRecordings(null);
+                  setRecordingsError('');
+                }}
+                className="text-xs text-gold hover:text-gold-dim transition-colors"
+              >
+                Clear role filter
+              </button>
+            )}
           </div>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
-            {characters.map((role) => {
-              const roleKey = getRoleKey(role);
-              const isSelected = selectedRoleKey === roleKey;
-              return (
-                <button
-                  key={roleKey}
-                  type="button"
-                  onClick={() => void handleRoleClick(role)}
-                  className={`text-left bg-surface border rounded-2xl p-4 transition-colors ${
-                    isSelected ? 'border-gold bg-gold/5' : 'border-border hover:border-gold/40'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-gold">{role.character}</p>
-                      <p className="text-xs text-muted mt-0.5">
-                        {role.scriptTitle}{role.scriptYear ? ` (${role.scriptYear})` : ''}
-                      </p>
-                    </div>
-                    <span className="text-xs text-muted">
-                      {role.totalRecorded} line{role.totalRecorded !== 1 ? 's' : ''}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted mt-3">
-                    {role.totalLines > 0 ? `${role.completionPct}% complete` : 'No dialogue coverage'}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      {groups.map((group) => (
-        <div key={group.title} className="mt-8">
-          {isGrouped && (
-            <h2 className="text-sm font-medium text-muted mb-2">
-              {group.title}{group.year ? ` (${group.year})` : ''}
-            </h2>
-          )}
-          <p className="text-xs text-muted/50 mb-2">Sorted by most recorded</p>
-          <RoleCall characters={group.chars} grouped={isGrouped} allowContinue={false} />
-        </div>
+          <RoleCall
+            characters={group.chars}
+            grouped={isGrouped}
+            allowContinue={false}
+            onCharacterSelect={(character) => void handleRoleClick(character)}
+            selectedCharacterKey={selectedRoleKey}
+          />
+        </section>
       ))}
 
       <section ref={recordingsRef} className="mt-8">
