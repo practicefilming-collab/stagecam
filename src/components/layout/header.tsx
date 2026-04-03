@@ -23,7 +23,10 @@ export function Header({ profile }: { profile: Profile }) {
     { href: '/account', label: 'Account' },
     { href: '/history', label: 'History' },
     { href: '/stats/me', label: 'Stats' },
-    ...(profile.is_admin ? [{ href: '/stats', label: 'Admin Stats' }] : []),
+    ...(profile.is_admin ? [
+      { href: '/clips', label: 'Clips' },
+      { href: '/stats', label: 'Admin Stats' },
+    ] : []),
     { href: '/requests', label: 'Requests' },
   ];
 
