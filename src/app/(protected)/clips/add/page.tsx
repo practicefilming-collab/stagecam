@@ -55,7 +55,6 @@ export default function AddClipPage() {
     if (!sourceUrl.trim()) return;
     setFetching(true);
     setFetchError('');
-    setMetadata(null);
 
     const res = await fetch('/api/clips/metadata', {
       method: 'POST',
@@ -70,8 +69,8 @@ export default function AddClipPage() {
       setFetchError(data.error);
     }
 
-    // Auto-fill editable fields
-    setDisplayTitle(data.display_title || '');
+    // Auto-fill all fields from metadata
+    if (data.display_title) setDisplayTitle(data.display_title);
 
     setFetching(false);
   };
@@ -122,157 +121,154 @@ export default function AddClipPage() {
   const selectClass = 'w-full bg-surface border border-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-gold/50';
   const labelClass = 'block text-xs text-muted mb-1.5';
 
+  // Step 1: Only show URL input until metadata is fetched
+  const showForm = metadata !== null;
+
   return (
     <div className="max-w-xl mx-auto px-4 py-12">
       <h1 className="text-2xl font-bold text-gold mb-8">Add Clip</h1>
 
-      {/* Step 1: Paste URL */}
-      <div className="mb-6">
-        <label className={labelClass}>Paste TikTok URL</label>
-        <div className="flex gap-3">
-          <input
-            type="url"
-            value={sourceUrl}
-            onChange={(e) => setSourceUrl(e.target.value)}
-            placeholder="https://www.tiktok.com/@user/video/..."
-            className={`${inputClass} flex-1`}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); fetchMetadata(); } }}
-          />
-          <button
-            onClick={fetchMetadata}
-            disabled={fetching || !sourceUrl.trim()}
-            className="px-5 py-3 bg-gold text-black rounded-lg font-medium text-sm hover:bg-gold-dim transition-colors disabled:opacity-50 whitespace-nowrap"
-          >
-            {fetching ? 'Fetching...' : 'Fetch'}
-          </button>
-        </div>
+      {/* URL input */}
+      <div className={showForm ? 'mb-6' : 'mb-0'}>
+        <label className={labelClass}>Paste a TikTok URL</label>
+        <input
+          type="url"
+          value={sourceUrl}
+          onChange={(e) => setSourceUrl(e.target.value)}
+          placeholder="https://www.tiktok.com/@user/video/..."
+          className={`${inputClass} mb-3`}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); fetchMetadata(); } }}
+        />
+        <button
+          onClick={fetchMetadata}
+          disabled={fetching || !sourceUrl.trim()}
+          className="w-full py-3 bg-gold text-black rounded-lg font-medium text-sm hover:bg-gold-dim transition-colors disabled:opacity-50"
+        >
+          {fetching ? 'Fetching info...' : 'Fetch'}
+        </button>
         {fetchError && (
-          <p className="text-yellow-400 text-xs mt-2">{fetchError} — you can fill in the details manually below.</p>
+          <p className="text-yellow-400 text-xs mt-3">{fetchError}</p>
         )}
       </div>
 
-      {/* Step 2: Auto-filled metadata preview */}
-      {metadata && !fetching && (
-        <div className="bg-surface border border-border rounded-xl p-4 mb-6">
-          <p className="text-xs text-muted mb-2">Auto-detected from URL</p>
-          <div className="space-y-1 text-sm">
-            {metadata.display_title && (
-              <p><span className="text-muted">Title:</span> {metadata.display_title}</p>
-            )}
-            {metadata.creator_name && (
-              <p><span className="text-muted">Creator:</span> {metadata.creator_name} {metadata.creator_handle}</p>
-            )}
-            {metadata.duration_ms > 0 && (
-              <p><span className="text-muted">Duration:</span> {Math.round(metadata.duration_ms / 1000)}s</p>
-            )}
-            <p><span className="text-muted">Platform:</span> {metadata.source_platform.replace(/_/g, ' ')}</p>
-          </div>
-        </div>
-      )}
-
-      {/* Step 3: Editable form (shown after fetch or immediately if user wants manual entry) */}
-      {(metadata || !fetching) && (
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div>
-            <label className={labelClass}>Display Title *</label>
-            <input
-              type="text"
-              value={displayTitle}
-              onChange={(e) => setDisplayTitle(e.target.value)}
-              placeholder={metadata ? 'Edit the auto-filled title...' : 'Enter a title for this clip'}
-              className={inputClass}
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={labelClass}>Content Type</label>
-              <select value={contentType} onChange={(e) => setContentType(e.target.value)} className={selectClass}>
-                {contentTypes.map((t) => (
-                  <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className={labelClass}>Energy Level</label>
-              <select value={energyLevel} onChange={(e) => setEnergyLevel(e.target.value)} className={selectClass}>
-                {energyLevels.map((l) => (
-                  <option key={l} value={l}>{l}</option>
-                ))}
-              </select>
+      {/* Metadata preview + editable form (only after fetch) */}
+      {showForm && (
+        <>
+          {/* Auto-detected info */}
+          <div className="bg-surface border border-border rounded-xl p-4 mb-6">
+            <p className="text-xs text-muted mb-2">Auto-detected</p>
+            <div className="space-y-1 text-sm">
+              {metadata.creator_name && (
+                <p><span className="text-muted">Creator:</span> {metadata.creator_name} {metadata.creator_handle}</p>
+              )}
+              {metadata.duration_ms > 0 && (
+                <p><span className="text-muted">Duration:</span> {Math.round(metadata.duration_ms / 1000)}s</p>
+              )}
+              <p><span className="text-muted">Platform:</span> {metadata.source_platform.replace(/_/g, ' ')}</p>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          {/* Editable form */}
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className={labelClass}>Difficulty (1-5)</label>
+              <label className={labelClass}>Display Title *</label>
               <input
-                type="number"
-                min={1}
-                max={5}
-                value={difficultyRating}
-                onChange={(e) => setDifficultyRating(e.target.value ? parseInt(e.target.value) : '')}
+                type="text"
+                value={displayTitle}
+                onChange={(e) => setDisplayTitle(e.target.value)}
+                placeholder="Edit title..."
                 className={inputClass}
-                placeholder="Optional"
+                required
               />
             </div>
 
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>Content Type</label>
+                <select value={contentType} onChange={(e) => setContentType(e.target.value)} className={selectClass}>
+                  {contentTypes.map((t) => (
+                    <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>Energy Level</label>
+                <select value={energyLevel} onChange={(e) => setEnergyLevel(e.target.value)} className={selectClass}>
+                  {energyLevels.map((l) => (
+                    <option key={l} value={l}>{l}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>Difficulty (1-5)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={5}
+                  value={difficultyRating}
+                  onChange={(e) => setDifficultyRating(e.target.value ? parseInt(e.target.value) : '')}
+                  className={inputClass}
+                  placeholder="Optional"
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Category</label>
+                <select value={categoryBucket} onChange={(e) => setCategoryBucket(e.target.value)} className={selectClass}>
+                  {categoryBuckets.map((b) => (
+                    <option key={b} value={b}>{b.replace(/_/g, ' ')}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
             <div>
-              <label className={labelClass}>Category</label>
-              <select value={categoryBucket} onChange={(e) => setCategoryBucket(e.target.value)} className={selectClass}>
-                {categoryBuckets.map((b) => (
-                  <option key={b} value={b}>{b.replace(/_/g, ' ')}</option>
+              <label className={labelClass}>Creator</label>
+              <select value={creatorId} onChange={(e) => setCreatorId(e.target.value)} className={selectClass}>
+                <option value="">None</option>
+                {creators.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.display_name}{c.platform_handle ? ` (${c.platform_handle})` : ''}
+                  </option>
                 ))}
               </select>
             </div>
-          </div>
 
-          <div>
-            <label className={labelClass}>Creator</label>
-            <select value={creatorId} onChange={(e) => setCreatorId(e.target.value)} className={selectClass}>
-              <option value="">None</option>
-              {creators.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.display_name}{c.platform_handle ? ` (${c.platform_handle})` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
+            <div>
+              <label className={labelClass}>Sound</label>
+              <select value={soundId} onChange={(e) => setSoundId(e.target.value)} className={selectClass}>
+                <option value="">None</option>
+                {sounds.map((s) => (
+                  <option key={s.id} value={s.id}>{s.display_name}</option>
+                ))}
+              </select>
+            </div>
 
-          <div>
-            <label className={labelClass}>Sound</label>
-            <select value={soundId} onChange={(e) => setSoundId(e.target.value)} className={selectClass}>
-              <option value="">None</option>
-              {sounds.map((s) => (
-                <option key={s.id} value={s.id}>{s.display_name}</option>
-              ))}
-            </select>
-          </div>
+            <div>
+              <label className={labelClass}>Collection</label>
+              <select value={collectionId} onChange={(e) => setCollectionId(e.target.value)} className={selectClass}>
+                <option value="">None</option>
+                {collections.map((col) => (
+                  <option key={col.id} value={col.id}>{col.display_name}</option>
+                ))}
+              </select>
+            </div>
 
-          <div>
-            <label className={labelClass}>Collection</label>
-            <select value={collectionId} onChange={(e) => setCollectionId(e.target.value)} className={selectClass}>
-              <option value="">None</option>
-              {collections.map((col) => (
-                <option key={col.id} value={col.id}>{col.display_name}</option>
-              ))}
-            </select>
-          </div>
+            {error && (
+              <p className="text-red-400 text-sm">{error}</p>
+            )}
 
-          {error && (
-            <p className="text-red-400 text-sm">{error}</p>
-          )}
-
-          <button
-            type="submit"
-            disabled={submitting || !displayTitle.trim() || !sourceUrl.trim()}
-            className="w-full py-3 bg-gold text-black rounded-lg font-medium text-sm hover:bg-gold-dim transition-colors disabled:opacity-50"
-          >
-            {submitting ? 'Creating...' : 'Add Clip'}
-          </button>
-        </form>
+            <button
+              type="submit"
+              disabled={submitting || !displayTitle.trim()}
+              className="w-full py-3 bg-gold text-black rounded-lg font-medium text-sm hover:bg-gold-dim transition-colors disabled:opacity-50"
+            >
+              {submitting ? 'Creating...' : 'Add Clip'}
+            </button>
+          </form>
+        </>
       )}
     </div>
   );
