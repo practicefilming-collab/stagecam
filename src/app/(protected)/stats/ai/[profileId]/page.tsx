@@ -62,6 +62,22 @@ interface RecentFailure {
   sceneHeading: string | null;
 }
 
+interface VoiceVerificationSample {
+  id: string;
+  status: string;
+  sampleText: string;
+  requestedVoicePersonaId: string;
+  resolvedVoiceId: string;
+  expressiveText: string | null;
+  contentType: string | null;
+  byteLength: number | null;
+  requestPayload: Record<string, unknown>;
+  responsePayload: Record<string, unknown>;
+  errorMessage: string | null;
+  createdAt: string;
+  audioUrl: string | null;
+}
+
 interface AiProfileDetail {
   profile: {
     id: string;
@@ -81,6 +97,7 @@ interface AiProfileDetail {
   recentScenes: RecentScene[];
   recentRuns: RecentRun[];
   recentFailures: RecentFailure[];
+  voiceVerificationSamples: VoiceVerificationSample[];
 }
 
 function formatDate(iso: string | null): string {
@@ -98,6 +115,7 @@ function statusClass(status: string): string {
   switch (status) {
     case 'active':
     case 'succeeded':
+    case 'ready':
       return 'bg-green-500/15 text-green-400';
     case 'processing':
       return 'bg-blue-500/15 text-blue-400';
@@ -121,25 +139,51 @@ export default function AiProfileStatsPage() {
   const [error, setError] = useState('');
   const [scenesShown, setScenesShown] = useState(5);
   const [breakdownOpen, setBreakdownOpen] = useState(false);
+  const [verifyBusy, setVerifyBusy] = useState(false);
+  const [verifyMessage, setVerifyMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+
+  async function reload() {
+    const res = await fetch(`/api/stats/ai/${profileId}`);
+    if (res.status === 403) {
+      router.replace('/stats/me');
+      return;
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to load' }));
+      setError(err.error || 'Failed to load');
+      setLoading(false);
+      return;
+    }
+    setData(await res.json());
+    setLoading(false);
+  }
 
   useEffect(() => {
-    async function load() {
-      const res = await fetch(`/api/stats/ai/${profileId}`);
-      if (res.status === 403) {
-        router.replace('/stats/me');
-        return;
-      }
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Failed to load' }));
-        setError(err.error || 'Failed to load');
-        setLoading(false);
-        return;
-      }
-      setData(await res.json());
-      setLoading(false);
-    }
-    void load();
+    void reload();
   }, [profileId, router]);
+
+  async function verifyVoice() {
+    setVerifyBusy(true);
+    setVerifyMessage(null);
+
+    try {
+      const res = await fetch(`/api/admin/ai/profiles/${profileId}/verify-voice`, { method: 'POST' });
+      const body = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setVerifyMessage({ kind: 'error', text: body.error || 'Voice verification failed' });
+        return;
+      }
+
+      setVerifyMessage({
+        kind: 'success',
+        text: `Generated fresh sample for ${body.sample?.resolvedVoiceId ?? 'voice audit'}`,
+      });
+      await reload();
+    } finally {
+      setVerifyBusy(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -157,7 +201,7 @@ export default function AiProfileStatsPage() {
     );
   }
 
-  const { profile, summary, characters, recentScenes, recentRuns, recentFailures } = data;
+  const { profile, summary, characters, recentScenes, recentRuns, recentFailures, voiceVerificationSamples } = data;
   const groupedScripts = new Map<string, { title: string; year: number | null; chars: CharacterCard[] }>();
   for (const character of characters) {
     const key = character.scriptId || character.scriptSlug;
@@ -190,6 +234,20 @@ export default function AiProfileStatsPage() {
         <p className="text-sm text-muted mt-1">
           {profile.scriptTitle}{profile.scriptYear ? ` (${profile.scriptYear})` : ''} · {profile.voicePersonaLabel ?? profile.voicePersonaId}
         </p>
+        <div className="mt-3 flex items-center gap-3 flex-wrap">
+          <button
+            onClick={verifyVoice}
+            disabled={verifyBusy}
+            className="px-3 py-2 text-xs rounded-xl bg-gold/15 text-gold border border-gold/30 disabled:opacity-50"
+          >
+            {verifyBusy ? 'Generating sample...' : 'Generate Fresh Voice Sample'}
+          </button>
+          {verifyMessage && (
+            <span className={`text-xs ${verifyMessage.kind === 'success' ? 'text-green-300' : 'text-red-300'}`}>
+              {verifyMessage.text}
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-3 mb-4">
@@ -272,8 +330,8 @@ export default function AiProfileStatsPage() {
                     <p key={entry.character ?? '__narrator__'} className="text-xs text-muted">
                       <span className={entry.character ? 'text-gold' : 'text-muted/60'}>
                         {entry.character ?? 'Narrator'}
-                      </span>
-                      {' '}×{entry.count}
+                      </span>{' '}
+                      ×{entry.count}
                     </p>
                   ))}
                 </div>
@@ -292,6 +350,44 @@ export default function AiProfileStatsPage() {
       )}
 
       <section className="mt-10 bg-surface border border-border rounded-2xl p-5">
+        <h2 className="text-xs text-muted uppercase tracking-wider mb-3">Voice Verification</h2>
+        <div className="space-y-3 mb-8">
+          {voiceVerificationSamples.length === 0 && (
+            <p className="text-sm text-muted">No voice verification samples yet.</p>
+          )}
+          {voiceVerificationSamples.map((sample) => (
+            <div key={sample.id} className="border border-border rounded-xl p-4">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className={`px-2 py-0.5 rounded-full text-xs ${statusClass(sample.status)}`}>
+                    {sample.status}
+                  </span>
+                  <span className="text-sm text-foreground">
+                    requested {sample.requestedVoicePersonaId} -&gt; resolved {sample.resolvedVoiceId}
+                  </span>
+                </div>
+                <span className="text-xs text-muted">{formatDate(sample.createdAt)}</span>
+              </div>
+              <p className="text-xs text-muted mt-2">{sample.sampleText}</p>
+              {sample.audioUrl && (
+                <audio controls className="mt-3 w-full">
+                  <source src={sample.audioUrl} type={sample.contentType ?? 'audio/mpeg'} />
+                </audio>
+              )}
+              {sample.expressiveText && (
+                <p className="text-xs text-muted mt-3">Rendered text: {sample.expressiveText}</p>
+              )}
+              <div className="flex flex-wrap gap-4 text-xs text-muted mt-3">
+                <span>Bytes: {sample.byteLength ?? '-'}</span>
+                <span>Content-Type: {sample.contentType ?? '-'}</span>
+              </div>
+              {sample.errorMessage && (
+                <p className="text-xs text-red-300 mt-2">{sample.errorMessage}</p>
+              )}
+            </div>
+          ))}
+        </div>
+
         <h2 className="text-xs text-muted uppercase tracking-wider mb-3">Recent Generation Runs</h2>
         <div className="space-y-3">
           {recentRuns.length === 0 && (
@@ -328,11 +424,8 @@ export default function AiProfileStatsPage() {
                 <div className="mb-1">
                   <span className="text-gold">
                     Scene {failure.sceneNumber ?? '?'}{failure.chunkInScene ? ` · Line ${failure.chunkInScene}` : ''}
-                  </span>
-                  {' · '}
-                  <span>{failure.character ?? 'Narrator'}</span>
-                  {' · '}
-                  <span>{formatDate(failure.createdAt)}</span>
+                  </span>{' '}
+                  · <span>{failure.character ?? 'Narrator'}</span> · <span>{formatDate(failure.createdAt)}</span>
                 </div>
                 <div>{failure.errorMessage ?? 'Generation failed'}</div>
               </div>

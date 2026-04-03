@@ -3,6 +3,7 @@ export type AuthProvider = 'instagram' | 'tiktok' | 'google';
 export type PublicIdentityPlatform = 'instagram' | 'tiktok' | 'incognito';
 export type AIProfilePlatform = 'Grok';
 export type AIProfileStatus = 'active' | 'paused' | 'archived';
+export type AIVoiceVerificationStatus = 'ready' | 'failed';
 export type ScriptGenerationRunStatus = 'queued' | 'processing' | 'succeeded' | 'failed' | 'cancelled';
 export type SceneGenerationJobStatus = 'queued' | 'processing' | 'succeeded' | 'failed' | 'cancelled';
 export type ScriptGenerationExecutionMode = 'offline_batch';
@@ -39,6 +40,25 @@ export interface AIProfile {
   voice_persona_id: string;
   voice_persona_label: string | null;
   metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AIVoiceVerificationSample {
+  id: string;
+  ai_profile_id: string;
+  script_id: string;
+  status: AIVoiceVerificationStatus;
+  sample_text: string;
+  requested_voice_persona_id: string;
+  resolved_voice_id: string;
+  expressive_text: string | null;
+  storage_key: string | null;
+  content_type: string | null;
+  byte_length: number | null;
+  request_payload: Record<string, unknown>;
+  response_payload: Record<string, unknown>;
+  error_message: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -279,3 +299,178 @@ export interface ParsedLine {
 }
 
 export type ParsedChunk = ParsedLine;
+
+// ── Clips ──────────────────────────────────────────────────────────
+
+export type ClipSourcePlatform = 'tiktok' | 'instagram_reel' | 'youtube_short' | 'other';
+export type ClipContentType = 'spoken_word' | 'lip_sync' | 'music_performance' | 'comedy_timing' | 'mixed';
+export type ClipEnergyLevel = 'low' | 'medium' | 'high' | 'explosive';
+export type ClipBeatProfile = 'speech_paced' | 'musical_beat' | 'irregular' | 'silent_gaps';
+export type ClipCategoryBucket = 'trending' | 'classic' | 'creator_spotlight' | 'challenge' | 'unsorted';
+export type ClipPipelineStatus = 'pending' | 'downloading' | 'extracting' | 'analyzing' | 'ready_for_review' | 'active' | 'failed';
+export type ClipPracticeMode = 'guided_audio_mixed' | 'guided_audio_clean' | 'response_recall' | 'freestyle_variation';
+export type ClipSpeedLevel = '0.60x' | '0.75x' | '0.90x' | '1.00x';
+export type ClipPlaybackTreatment = 'pitch_shifted' | 'pitch_preserved';
+export type ClipCaptureIsolation = 'mixed' | 'clean';
+export type ClipPairingStatus = 'not_needed' | 'pending' | 'paired' | 'failed' | 'skipped';
+export type ClipStepStatus = 'locked' | 'available' | 'completed' | 'skipped' | 'conditionally_advanced';
+export type ClipSegmentType = 'full_clip' | 'intro' | 'main_hook' | 'punchline' | 'verse' | 'chorus' | 'outro' | 'custom';
+export type ClipSoundType = 'original_audio' | 'song_clip' | 'remix' | 'voiceover' | 'unknown';
+export type ClipCreatorType = 'influencer' | 'comedian' | 'singer' | 'actor' | 'public_figure' | 'unknown';
+export type ClipCreatorPlatform = 'tiktok' | 'instagram' | 'youtube' | 'multi_platform';
+export type ClipCollectionType = 'trend' | 'creator_set' | 'theme' | 'difficulty_ladder' | 'custom';
+export type ClipVizPreset = 'waveform_pulse' | 'particle_burst' | 'glow_ring' | 'silhouette_bounce' | 'minimal_text';
+export type ClipEnergyMapping = 'auto_from_audio' | 'manual_override';
+export type ClipSubtitleSourceType = 'tiktok_caption' | 'speech_to_text' | 'manual_entry' | 'hybrid';
+export type ClipAttemptProcessingStatus = 'pending' | 'processing' | 'scored' | 'failed';
+
+export interface Clip {
+  id: string;
+  display_title: string;
+  source_url: string;
+  source_platform: ClipSourcePlatform;
+  creator_id: string | null;
+  sound_id: string | null;
+  collection_id: string | null;
+  content_type: ClipContentType;
+  content_language: string;
+  duration_ms: number | null;
+  difficulty_rating: number | null;
+  energy_level: ClipEnergyLevel;
+  beat_profile: ClipBeatProfile;
+  tags: string[];
+  category_bucket: ClipCategoryBucket;
+  character_ref_id: string | null;
+  video_storage_path: string | null;
+  video_file_size_bytes: number | null;
+  video_checksum: string | null;
+  audio_wav_path: string | null;
+  audio_aac_path: string | null;
+  beat_map_path: string | null;
+  speech_segments_path: string | null;
+  pipeline_status: ClipPipelineStatus;
+  pipeline_error: string | null;
+  is_active: boolean;
+  added_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClipSegment {
+  id: string;
+  clip_id: string;
+  display_label: string;
+  start_ms: number;
+  end_ms: number;
+  segment_type: ClipSegmentType;
+  subtitle_data: ClipSubtitleData | null;
+  subtitle_source_type: ClipSubtitleSourceType | null;
+  subtitle_verified: boolean;
+  difficulty_rating: number | null;
+  ordering_index: number;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface ClipSubtitleData {
+  cues: ClipSubtitleCue[];
+}
+
+export interface ClipSubtitleCue {
+  cue_id: number;
+  start_ms: number;
+  end_ms: number;
+  text: string;
+  words: ClipSubtitleWord[];
+}
+
+export interface ClipSubtitleWord {
+  word: string;
+  start_ms: number;
+  end_ms: number;
+  confidence?: number;
+}
+
+export interface ClipSound {
+  id: string;
+  display_name: string;
+  origin_creator_id: string | null;
+  sound_type: ClipSoundType;
+  duration_ms: number | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface ClipCreator {
+  id: string;
+  display_name: string;
+  platform_handle: string | null;
+  platform: ClipCreatorPlatform;
+  creator_type: ClipCreatorType;
+  description: string | null;
+  character_ref_id: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface ClipCollection {
+  id: string;
+  display_name: string;
+  description: string | null;
+  collection_type: ClipCollectionType;
+  ordering_index: number;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface ClipVisualizationConfig {
+  id: string;
+  clip_id: string;
+  style_preset: ClipVizPreset;
+  color_palette: { primary: string; secondary: string; accent: string };
+  creator_avatar_path: string | null;
+  beat_reactivity_intensity: number;
+  energy_mapping: ClipEnergyMapping;
+  created_at: string;
+}
+
+export interface ClipAttempt {
+  id: string;
+  user_id: string;
+  segment_id: string;
+  clip_id: string;
+  practice_mode: ClipPracticeMode;
+  speed_level: ClipSpeedLevel;
+  playback_treatment: ClipPlaybackTreatment;
+  capture_isolation_type: ClipCaptureIsolation;
+  pairing_status: ClipPairingStatus;
+  headphone_required_met: boolean;
+  step_status: ClipStepStatus;
+  step_skipped_reason: string | null;
+  recording_path: string | null;
+  visualization_active: boolean;
+  timing_score: number | null;
+  rhythm_score: number | null;
+  energy_score: number | null;
+  completion_confidence_score: number | null;
+  overall_score: number | null;
+  pass_result: boolean | null;
+  grading_version: string;
+  content_type_grading_profile: string | null;
+  started_at: string;
+  completed_at: string | null;
+  processing_status: ClipAttemptProcessingStatus;
+}
+
+export interface ClipProgress {
+  id: string;
+  user_id: string;
+  clip_id: string;
+  segment_id: string | null;
+  highest_unlocked_mode: ClipPracticeMode | null;
+  highest_unlocked_speed: ClipSpeedLevel | null;
+  is_segment_complete: boolean;
+  is_conditionally_advanced: boolean;
+  has_skipped_clean: boolean;
+  updated_at: string;
+}

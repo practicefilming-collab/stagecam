@@ -235,6 +235,13 @@ export async function GET(
       .limit(8),
   ]);
 
+  const { data: voiceSamples } = await admin
+    .from('ai_voice_verification_samples')
+    .select('id, status, sample_text, requested_voice_persona_id, resolved_voice_id, expressive_text, content_type, byte_length, request_payload, response_payload, error_message, created_at')
+    .eq('ai_profile_id', profileId)
+    .order('created_at', { ascending: false })
+    .limit(8);
+
   return NextResponse.json({
     profile: {
       id: profile.id,
@@ -286,5 +293,22 @@ export async function GET(
         sceneHeading: chunk?.scenes?.scene_heading ?? null,
       };
     }),
+    voiceVerificationSamples: (voiceSamples ?? []).map((sample) => ({
+      id: sample.id,
+      status: sample.status,
+      sampleText: sample.sample_text,
+      requestedVoicePersonaId: sample.requested_voice_persona_id,
+      resolvedVoiceId: sample.resolved_voice_id,
+      expressiveText: sample.expressive_text,
+      contentType: sample.content_type,
+      byteLength: sample.byte_length,
+      requestPayload: sample.request_payload,
+      responsePayload: sample.response_payload,
+      errorMessage: sample.error_message,
+      createdAt: sample.created_at,
+      audioUrl: sample.status === 'ready'
+        ? `/api/admin/ai/voice-verifications/${sample.id}/audio`
+        : null,
+    })),
   });
 }
