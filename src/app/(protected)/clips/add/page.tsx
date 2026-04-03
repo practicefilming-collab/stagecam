@@ -72,6 +72,36 @@ export default function AddClipPage() {
     // Auto-fill all fields from metadata
     if (data.display_title) setDisplayTitle(data.display_title);
 
+    // Auto-create creator if we got a name from the platform
+    if (data.creator_name && !data.error) {
+      // Check if creator already exists by handle
+      const existingCreator = creators.find(
+        (c) => c.platform_handle === data.creator_handle || c.display_name === data.creator_name,
+      );
+
+      if (existingCreator) {
+        setCreatorId(existingCreator.id);
+      } else {
+        // Create new creator record
+        const createRes = await fetch('/api/clips/creators', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            display_name: data.creator_name,
+            platform_handle: data.creator_handle || null,
+            platform: data.source_platform === 'instagram_reel' ? 'instagram'
+              : data.source_platform === 'youtube_short' ? 'youtube'
+              : 'tiktok',
+          }),
+        });
+        if (createRes.ok) {
+          const newCreator = await createRes.json();
+          setCreators((prev) => [...prev, newCreator]);
+          setCreatorId(newCreator.id);
+        }
+      }
+    }
+
     setFetching(false);
   };
 
@@ -99,6 +129,7 @@ export default function AddClipPage() {
         creator_id: creatorId || null,
         sound_id: soundId || null,
         collection_id: collectionId || null,
+        duration_ms: metadata?.duration_ms || null,
       }),
     });
 

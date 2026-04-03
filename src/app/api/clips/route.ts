@@ -81,6 +81,7 @@ export async function POST(request: Request) {
       creator_id: body.creator_id ?? null,
       sound_id: body.sound_id ?? null,
       collection_id: body.collection_id ?? null,
+      duration_ms: body.duration_ms ?? null,
       pipeline_status: 'pending',
       added_by: user.id,
     })
