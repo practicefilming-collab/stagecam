@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { isAdmin } from '@/lib/admin';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
+import { r2, R2_BUCKET } from '@/lib/r2';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 type RouteContext = { params: Promise<{ profileId: string }> };
 
@@ -31,6 +34,8 @@ export async function GET(request: Request, { params }: RouteContext) {
     .select(`
       id,
       created_at,
+      video_url,
+      format,
       chunks!inner(
         id,
         type,
@@ -160,8 +165,26 @@ export async function GET(request: Request, { params }: RouteContext) {
       scriptTitle: script.title,
       scriptYear: script.year,
       scriptSlug: script.slug,
+      recordingUrl: null as string | null,
+      recordingFormat: rec.format ?? null,
     };
   });
+
+  for (const recording of recordings) {
+    const source = (data ?? []).find((entry) => entry.id === recording.recordingId);
+    const storageKey = source?.video_url;
+    if (!storageKey) continue;
+
+    try {
+      const command = new GetObjectCommand({
+        Bucket: R2_BUCKET,
+        Key: storageKey,
+      });
+      recording.recordingUrl = await getSignedUrl(r2, command, { expiresIn: 3600 });
+    } catch {
+      recording.recordingUrl = null;
+    }
+  }
 
   return NextResponse.json({ recordings });
 }

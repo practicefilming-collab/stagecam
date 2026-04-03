@@ -78,6 +78,8 @@ interface RecordingBreakdownEntry {
   scriptTitle: string;
   scriptYear: number | null;
   scriptSlug: string | null;
+  recordingUrl: string | null;
+  recordingFormat: string | null;
 }
 
 interface VoiceVerificationSample {
@@ -164,6 +166,7 @@ export default function AiProfileStatsPage() {
   const [recordings, setRecordings] = useState<RecordingBreakdownEntry[] | null>(null);
   const [recordingsLoading, setRecordingsLoading] = useState(false);
   const [recordingsError, setRecordingsError] = useState('');
+  const [selectedRecordingId, setSelectedRecordingId] = useState<string | null>(null);
   const voiceVerificationRef = useRef<HTMLElement | null>(null);
   const rolesRef = useRef<HTMLElement | null>(null);
   const recordingsRef = useRef<HTMLElement | null>(null);
@@ -192,6 +195,7 @@ export default function AiProfileStatsPage() {
     setRecordings(null);
     setRecordingsError('');
     setSelectedRoleKey(null);
+    setSelectedRecordingId(null);
   }, [profileId]);
 
   async function verifyVoice() {
@@ -250,7 +254,11 @@ export default function AiProfileStatsPage() {
         return;
       }
 
-      setRecordings(body.recordings ?? []);
+      const nextRecordings = body.recordings ?? [];
+      setRecordings(nextRecordings);
+      setSelectedRecordingId((current) => current && nextRecordings.some((recording: RecordingBreakdownEntry) => recording.recordingId === current)
+        ? current
+        : nextRecordings[0]?.recordingId ?? null);
     } finally {
       setRecordingsLoading(false);
     }
@@ -301,6 +309,10 @@ export default function AiProfileStatsPage() {
   const isGrouped = groups.length > 1;
   const tb = summary.typeBreakdown;
   const tbTotal = tb.dialogue + tb.action + tb.scene_heading + tb.transition;
+  const selectedRecording = (recordings ?? []).find((recording) => recording.recordingId === selectedRecordingId) ?? null;
+  const selectedRecordingIndex = selectedRecording
+    ? (recordings ?? []).findIndex((recording) => recording.recordingId === selectedRecording.recordingId)
+    : -1;
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-12">
@@ -452,13 +464,14 @@ export default function AiProfileStatsPage() {
             {selectedRoleKey && (
               <button
                 type="button"
-                onClick={() => {
-                  setSelectedRoleKey(null);
-                  setRecordings(null);
-                  setRecordingsError('');
-                }}
-                className="text-xs text-gold hover:text-gold-dim transition-colors"
-              >
+              onClick={() => {
+                setSelectedRoleKey(null);
+                setRecordings(null);
+                setRecordingsError('');
+                setSelectedRecordingId(null);
+              }}
+              className="text-xs text-gold hover:text-gold-dim transition-colors"
+            >
                 Clear role filter
               </button>
             )}
@@ -508,30 +521,101 @@ export default function AiProfileStatsPage() {
               No recordings match this filter.
             </div>
           )}
-          {!recordingsLoading && !recordingsError && (recordings ?? []).map((recording) => (
-            <Link
-              key={recording.recordingId}
-              href={`/panel/${recording.sceneId}?lineId=${recording.lineId}&recordingId=${recording.recordingId}`}
-              className="block bg-surface border border-border rounded-2xl p-4 hover:border-gold/40 hover:bg-gold/5 transition-colors"
-            >
-              <div className="flex items-start justify-between gap-4">
+          {!recordingsLoading && !recordingsError && selectedRecording && (
+            <div className="bg-surface border border-gold/30 rounded-2xl p-5">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div>
                   <p className="text-sm font-medium text-gold">
-                    {recording.character ?? 'Narrator'}
+                    {selectedRecording.character ?? 'Narrator'}
                     <span className="text-muted font-normal">
-                      {' '}· Scene {recording.sceneNumber}
-                      {recording.lineInScene ? ` · Line ${recording.lineInScene}` : ''}
+                      {' '}· Scene {selectedRecording.sceneNumber}
+                      {selectedRecording.lineInScene ? ` · Line ${selectedRecording.lineInScene}` : ''}
                     </span>
                   </p>
                   <p className="text-xs text-muted mt-1">
-                    {recording.scriptTitle}{recording.scriptYear ? ` (${recording.scriptYear})` : ''} · {recording.sceneHeading || 'Untitled scene'}
+                    {selectedRecording.scriptTitle}{selectedRecording.scriptYear ? ` (${selectedRecording.scriptYear})` : ''} · {selectedRecording.sceneHeading || 'Untitled scene'}
                   </p>
                 </div>
-                <span className="text-xs text-muted whitespace-nowrap">{formatDate(recording.createdAt)}</span>
+                <span className="text-xs text-muted whitespace-nowrap">{formatDate(selectedRecording.createdAt)}</span>
               </div>
-              <p className="text-sm text-foreground/90 mt-3 line-clamp-2">{recording.lineText}</p>
-            </Link>
-          ))}
+
+              <p className="text-base text-foreground mt-4 leading-relaxed">{selectedRecording.lineText}</p>
+
+              {selectedRecording.recordingUrl && (
+                <div className="mt-4">
+                  {selectedRecording.recordingFormat?.startsWith('audio/') ? (
+                    <audio controls className="w-full" src={selectedRecording.recordingUrl} />
+                  ) : (
+                    <video controls className="w-full rounded-xl bg-black" src={selectedRecording.recordingUrl} />
+                  )}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-3 flex-wrap mt-4">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={selectedRecordingIndex <= 0}
+                    onClick={() => {
+                      const previous = recordings?.[selectedRecordingIndex - 1];
+                      if (previous) setSelectedRecordingId(previous.recordingId);
+                    }}
+                    className="px-3 py-2 text-xs rounded-xl border border-border text-muted hover:text-foreground disabled:opacity-40"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    disabled={selectedRecordingIndex < 0 || selectedRecordingIndex >= (recordings?.length ?? 0) - 1}
+                    onClick={() => {
+                      const next = recordings?.[selectedRecordingIndex + 1];
+                      if (next) setSelectedRecordingId(next.recordingId);
+                    }}
+                    className="px-3 py-2 text-xs rounded-xl border border-border text-muted hover:text-foreground disabled:opacity-40"
+                  >
+                    Next
+                  </button>
+                </div>
+                <Link
+                  href={`/panel/${selectedRecording.sceneId}?lineId=${selectedRecording.lineId}&recordingId=${selectedRecording.recordingId}`}
+                  className="px-3 py-2 text-xs rounded-xl bg-gold/15 text-gold border border-gold/30 hover:bg-gold/20 transition-colors"
+                >
+                  Open Full Scene
+                </Link>
+              </div>
+            </div>
+          )}
+
+          {!recordingsLoading && !recordingsError && (recordings ?? []).map((recording) => {
+            const isSelected = recording.recordingId === selectedRecordingId;
+            return (
+              <button
+                key={recording.recordingId}
+                type="button"
+                onClick={() => setSelectedRecordingId(recording.recordingId)}
+                className={`block w-full text-left bg-surface border rounded-2xl p-4 transition-colors ${
+                  isSelected ? 'border-gold bg-gold/5' : 'border-border hover:border-gold/40 hover:bg-gold/5'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-gold">
+                      {recording.character ?? 'Narrator'}
+                      <span className="text-muted font-normal">
+                        {' '}· Scene {recording.sceneNumber}
+                        {recording.lineInScene ? ` · Line ${recording.lineInScene}` : ''}
+                      </span>
+                    </p>
+                    <p className="text-xs text-muted mt-1">
+                      {recording.scriptTitle}{recording.scriptYear ? ` (${recording.scriptYear})` : ''} · {recording.sceneHeading || 'Untitled scene'}
+                    </p>
+                  </div>
+                  <span className="text-xs text-muted whitespace-nowrap">{formatDate(recording.createdAt)}</span>
+                </div>
+                <p className="text-sm text-foreground/90 mt-3 line-clamp-2">{recording.lineText}</p>
+              </button>
+            );
+          })}
         </div>
       </section>
 
