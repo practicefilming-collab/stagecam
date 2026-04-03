@@ -1,0 +1,14 @@
+{
+  "name": "stagecam-clip-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1004.0",
+    "@aws-sdk/s3-request-presigner": "^3.1004.0",
+    "@supabase/supabase-js": "^2.98.0"
+  }
+}

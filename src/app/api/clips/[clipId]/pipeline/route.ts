@@ -1,15 +1,10 @@
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { isAdmin } from '@/lib/admin';
-import { runPipeline } from '@/lib/clips/pipeline/orchestrator';
-
-export const runtime = 'nodejs';
-export const maxDuration = 300; // 5 minutes for download + extract + analyze
 
 /**
- * POST: Trigger or retry the clip processing pipeline.
- * Kicks off the full pipeline (download → extract → analyze) inline.
- * Admin-only. Pipeline status is tracked in the clips table.
+ * POST: Trigger or retry the clip processing pipeline via the Fly.io worker.
+ * The worker handles download, extraction, analysis, and segment creation.
  */
 export async function POST(
   request: Request,
@@ -41,7 +36,6 @@ export async function POST(
   const body = await request.json().catch(() => ({}));
   const action = body.action ?? 'start';
 
-  // Validate state transitions
   if (action === 'start' && clip.pipeline_status !== 'pending') {
     return NextResponse.json({ error: 'Pipeline can only be started from pending status' }, { status: 400 });
   }
@@ -50,7 +44,14 @@ export async function POST(
     return NextResponse.json({ error: 'Can only retry failed pipelines' }, { status: 400 });
   }
 
-  // Reset pipeline error before starting
+  const workerUrl = process.env.CLIP_WORKER_URL;
+  const workerToken = process.env.CLIP_WORKER_TOKEN;
+
+  if (!workerUrl) {
+    return NextResponse.json({ error: 'Clip worker not configured — set CLIP_WORKER_URL' }, { status: 503 });
+  }
+
+  // Reset status
   await supabase
     .from('clips')
     .update({
@@ -60,12 +61,28 @@ export async function POST(
     })
     .eq('id', clipId);
 
-  // Run pipeline — this is async but we don't await it so the response returns immediately.
-  // The pipeline updates the clip's pipeline_status as it progresses.
-  // The admin UI polls the clip detail to see status changes.
-  runPipeline(clipId).catch((err) => {
-    console.error(`Pipeline failed for clip ${clipId}:`, err);
-  });
+  // Call worker — it returns 202 immediately and processes in background
+  try {
+    await fetch(`${workerUrl}/pipeline`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(workerToken ? { 'x-worker-token': workerToken } : {}),
+      },
+      body: JSON.stringify({ clipId }),
+    });
+  } catch (err) {
+    await supabase
+      .from('clips')
+      .update({
+        pipeline_status: 'failed',
+        pipeline_error: `Worker unreachable: ${(err as Error).message}`,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', clipId);
+
+    return NextResponse.json({ error: 'Worker unreachable' }, { status: 503 });
+  }
 
   return NextResponse.json({ status: 'started', clipId });
 }

@@ -3,12 +3,8 @@ import { NextResponse } from 'next/server';
 import { isAdmin } from '@/lib/admin';
 import { detectPlatform } from '@/lib/clips';
 
-export const runtime = 'nodejs';
-export const maxDuration = 30;
-
 /**
- * POST: Extract metadata from a TikTok/short-form video URL without downloading.
- * Uses yt-dlp --dump-json to get title, creator, duration, description.
+ * POST: Extract metadata from a TikTok URL via the Fly.io worker.
  */
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -27,39 +23,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'url is required' }, { status: 400 });
   }
 
-  try {
-    const { default: ytDlp } = await import('yt-dlp-exec');
+  const workerUrl = process.env.CLIP_WORKER_URL;
+  const workerToken = process.env.CLIP_WORKER_TOKEN;
 
-    const result = await ytDlp(url.trim(), {
-      dumpSingleJson: true,
-      noCheckCertificate: true,
-      noWarnings: true,
-      skipDownload: true,
-    });
-
-    // yt-dlp returns the JSON as stdout parsed into an object
-    const info = result as Record<string, unknown>;
-
-    const platform = detectPlatform(url);
-    const title = (info.title as string) ?? (info.fulltitle as string) ?? '';
-    const creator = (info.creator as string) ?? (info.uploader as string) ?? (info.channel as string) ?? '';
-    const creatorHandle = (info.uploader_id as string) ?? (info.channel_id as string) ?? '';
-    const durationSeconds = (info.duration as number) ?? 0;
-    const description = (info.description as string) ?? '';
-
+  if (!workerUrl) {
+    // No worker configured — return empty metadata for manual entry
     return NextResponse.json({
-      display_title: title,
-      creator_name: creator,
-      creator_handle: creatorHandle ? `@${creatorHandle.replace(/^@/, '')}` : '',
-      duration_ms: Math.round(durationSeconds * 1000),
-      description,
-      source_platform: platform,
-      source_url: url.trim(),
-    });
-  } catch (err) {
-    return NextResponse.json({
-      error: `Failed to extract metadata: ${(err as Error).message}`,
-      // Return partial data so the form still works
+      error: 'Clip worker not configured',
       display_title: '',
       creator_name: '',
       creator_handle: '',
@@ -67,6 +37,31 @@ export async function POST(request: Request) {
       description: '',
       source_platform: detectPlatform(url),
       source_url: url.trim(),
-    }, { status: 200 }); // 200 so the form can still proceed with manual entry
+    });
+  }
+
+  try {
+    const res = await fetch(`${workerUrl}/metadata`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(workerToken ? { 'x-worker-token': workerToken } : {}),
+      },
+      body: JSON.stringify({ url: url.trim() }),
+    });
+
+    const data = await res.json();
+    return NextResponse.json(data);
+  } catch (err) {
+    return NextResponse.json({
+      error: `Worker request failed: ${(err as Error).message}`,
+      display_title: '',
+      creator_name: '',
+      creator_handle: '',
+      duration_ms: 0,
+      description: '',
+      source_platform: detectPlatform(url),
+      source_url: url.trim(),
+    });
   }
 }
