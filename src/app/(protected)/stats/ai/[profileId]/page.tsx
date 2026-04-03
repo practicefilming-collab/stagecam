@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import RoleCall from '@/components/stats/role-call';
@@ -141,6 +141,8 @@ export default function AiProfileStatsPage() {
   const [breakdownOpen, setBreakdownOpen] = useState(false);
   const [verifyBusy, setVerifyBusy] = useState(false);
   const [verifyMessage, setVerifyMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const [highlightedSampleId, setHighlightedSampleId] = useState<string | null>(null);
+  const voiceVerificationRef = useRef<HTMLElement | null>(null);
 
   async function reload() {
     const res = await fetch(`/api/stats/ai/${profileId}`);
@@ -180,6 +182,12 @@ export default function AiProfileStatsPage() {
         text: `Generated fresh sample for ${body.sample?.resolvedVoiceId ?? 'voice audit'}`,
       });
       await reload();
+      if (typeof body.sample?.id === 'string') {
+        setHighlightedSampleId(body.sample.id);
+      }
+      window.setTimeout(() => {
+        voiceVerificationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 150);
     } finally {
       setVerifyBusy(false);
     }
@@ -249,6 +257,52 @@ export default function AiProfileStatsPage() {
           )}
         </div>
       </div>
+
+      <section ref={voiceVerificationRef} className="mb-8 bg-surface border border-border rounded-2xl p-5">
+        <div className="flex items-center justify-between gap-4 flex-wrap mb-3">
+          <h2 className="text-xs text-muted uppercase tracking-wider">Voice Verification</h2>
+          <span className="text-xs text-muted">Fresh samples do not affect scene coverage.</span>
+        </div>
+        <div className="space-y-3">
+          {voiceVerificationSamples.length === 0 && (
+            <p className="text-sm text-muted">No voice verification samples yet.</p>
+          )}
+          {voiceVerificationSamples.map((sample) => (
+            <div
+              key={sample.id}
+              className={`border rounded-xl p-4 ${highlightedSampleId === sample.id ? 'border-gold/50 bg-gold/5' : 'border-border'}`}
+            >
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className={`px-2 py-0.5 rounded-full text-xs ${statusClass(sample.status)}`}>
+                    {sample.status}
+                  </span>
+                  <span className="text-sm text-foreground">
+                    requested {sample.requestedVoicePersonaId} -&gt; resolved {sample.resolvedVoiceId}
+                  </span>
+                </div>
+                <span className="text-xs text-muted">{formatDate(sample.createdAt)}</span>
+              </div>
+              <p className="text-xs text-muted mt-2">{sample.sampleText}</p>
+              {sample.audioUrl && (
+                <audio controls autoPlay={highlightedSampleId === sample.id} className="mt-3 w-full">
+                  <source src={sample.audioUrl} type={sample.contentType ?? 'audio/mpeg'} />
+                </audio>
+              )}
+              {sample.expressiveText && (
+                <p className="text-xs text-muted mt-3">Rendered text: {sample.expressiveText}</p>
+              )}
+              <div className="flex flex-wrap gap-4 text-xs text-muted mt-3">
+                <span>Bytes: {sample.byteLength ?? '-'}</span>
+                <span>Content-Type: {sample.contentType ?? '-'}</span>
+              </div>
+              {sample.errorMessage && (
+                <p className="text-xs text-red-300 mt-2">{sample.errorMessage}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
 
       <div className="grid grid-cols-3 gap-3 mb-4">
         <div className="bg-surface border border-gold/20 rounded-xl p-4 text-center">
@@ -350,44 +404,6 @@ export default function AiProfileStatsPage() {
       )}
 
       <section className="mt-10 bg-surface border border-border rounded-2xl p-5">
-        <h2 className="text-xs text-muted uppercase tracking-wider mb-3">Voice Verification</h2>
-        <div className="space-y-3 mb-8">
-          {voiceVerificationSamples.length === 0 && (
-            <p className="text-sm text-muted">No voice verification samples yet.</p>
-          )}
-          {voiceVerificationSamples.map((sample) => (
-            <div key={sample.id} className="border border-border rounded-xl p-4">
-              <div className="flex items-center justify-between gap-4 flex-wrap">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <span className={`px-2 py-0.5 rounded-full text-xs ${statusClass(sample.status)}`}>
-                    {sample.status}
-                  </span>
-                  <span className="text-sm text-foreground">
-                    requested {sample.requestedVoicePersonaId} -&gt; resolved {sample.resolvedVoiceId}
-                  </span>
-                </div>
-                <span className="text-xs text-muted">{formatDate(sample.createdAt)}</span>
-              </div>
-              <p className="text-xs text-muted mt-2">{sample.sampleText}</p>
-              {sample.audioUrl && (
-                <audio controls className="mt-3 w-full">
-                  <source src={sample.audioUrl} type={sample.contentType ?? 'audio/mpeg'} />
-                </audio>
-              )}
-              {sample.expressiveText && (
-                <p className="text-xs text-muted mt-3">Rendered text: {sample.expressiveText}</p>
-              )}
-              <div className="flex flex-wrap gap-4 text-xs text-muted mt-3">
-                <span>Bytes: {sample.byteLength ?? '-'}</span>
-                <span>Content-Type: {sample.contentType ?? '-'}</span>
-              </div>
-              {sample.errorMessage && (
-                <p className="text-xs text-red-300 mt-2">{sample.errorMessage}</p>
-              )}
-            </div>
-          ))}
-        </div>
-
         <h2 className="text-xs text-muted uppercase tracking-wider mb-3">Recent Generation Runs</h2>
         <div className="space-y-3">
           {recentRuns.length === 0 && (
