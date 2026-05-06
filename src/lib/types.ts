@@ -28,7 +28,114 @@ export interface Profile {
   terms_accepted_at: string | null;
   terms_version: string | null;
   is_admin: boolean;
+  auditions_enabled: boolean;
   created_at: string;
+}
+
+export type AuditionStatus = 'uploaded' | 'processing' | 'ready' | 'archived';
+export type AuditionPracticeMode = 'guided_read' | 'cue_response' | 'room_rehearsal';
+export type AuditionProgressionStep =
+  | 'scene_familiarization'
+  | 'line_lock'
+  | 'cue_confidence'
+  | 'room_ready';
+export type AuditionAttemptOwnershipType = 'assigned_rehearser' | 'guest_participant';
+export type AuditionRoomStatus = 'waiting' | 'active' | 'ended';
+export type AuditionRoomParticipantRole = 'host' | 'assigned_rehearser' | 'guest' | 'admin';
+
+export interface AuditionScript {
+  id: string;
+  title: string;
+  source_label: string;
+  storage_key: string;
+  original_filename: string;
+  mime_type: string;
+  assigned_rehearser_user_id: string;
+  uploaded_by_user_id: string;
+  processed_by_admin_id: string | null;
+  status: AuditionStatus;
+  created_at: string;
+  processed_at: string | null;
+  archived_at: string | null;
+}
+
+export interface AuditionScene {
+  id: string;
+  audition_script_id: string;
+  label: string;
+  order_index: number;
+  source_page_ref: string | null;
+  scene_text: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuditionRole {
+  id: string;
+  audition_scene_id: string;
+  name: string;
+  order_index: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuditionTargetRole {
+  audition_script_id: string;
+  assigned_rehearser_user_id: string;
+  audition_role_id: string;
+  selected_role_name: string;
+  selected_at: string;
+}
+
+export interface AuditionSceneProgress {
+  id: string;
+  audition_script_id: string;
+  audition_scene_id: string;
+  assigned_rehearser_user_id: string;
+  selected_role_name: string;
+  progression_step: AuditionProgressionStep;
+  is_complete: boolean;
+  completed_at: string | null;
+  updated_at: string;
+}
+
+export interface AuditionAttempt {
+  id: string;
+  user_id: string;
+  audition_script_id: string;
+  audition_scene_id: string;
+  audition_role_id: string | null;
+  selected_role_name: string;
+  practice_mode: AuditionPracticeMode;
+  progression_step: AuditionProgressionStep;
+  ownership_type: AuditionAttemptOwnershipType;
+  room_session_id: string | null;
+  recording_ref: string | null;
+  notes: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
+export interface AuditionRoomSession {
+  id: string;
+  audition_script_id: string;
+  active_scene_id: string | null;
+  host_user_id: string;
+  room_code: string;
+  status: AuditionRoomStatus;
+  created_at: string;
+  ended_at: string | null;
+}
+
+export interface AuditionRoomParticipant {
+  id: string;
+  room_session_id: string;
+  user_id: string;
+  role_type: AuditionRoomParticipantRole;
+  joined_at: string;
+  left_at: string | null;
 }
 
 export interface AIProfile {
