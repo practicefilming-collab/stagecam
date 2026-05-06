@@ -47,6 +47,19 @@ export function AuditionsDashboard({
   const [error, setError] = useState('');
   const router = useRouter();
 
+  const assignableUsers = useMemo(() => {
+    if (!canManage) {
+      return uploadUsers;
+    }
+
+    return accessRoster
+      .filter((user) => user.is_admin || user.auditions_enabled)
+      .map((user) => ({
+        id: user.id,
+        display_name: user.display_name,
+      }));
+  }, [accessRoster, canManage, uploadUsers]);
+
   const statusCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const script of scripts) {
@@ -112,6 +125,12 @@ export function AuditionsDashboard({
 
     setAccessRoster((prev) => prev.map((item) => (item.id === user.id ? payload : item)));
     setSuccess(`${payload.display_name} is now ${payload.auditions_enabled ? 'enabled' : 'disabled'} for Auditions.`);
+    if (payload.auditions_enabled && !assignedUserId) {
+      setAssignedUserId(payload.id);
+    }
+    if (!payload.auditions_enabled && assignedUserId === payload.id) {
+      setAssignedUserId('');
+    }
     setToggleUserId(null);
     router.refresh();
   };
@@ -164,17 +183,24 @@ export function AuditionsDashboard({
               required
             />
             {canManage && (
-              <select
-                value={assignedUserId}
-                onChange={(event) => setAssignedUserId(event.target.value)}
-                className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:border-gold/50"
-                required
-              >
-                <option value="">Assign rehearser</option>
-                {uploadUsers.map((user) => (
-                  <option key={user.id} value={user.id}>{user.display_name}</option>
-                ))}
-              </select>
+              <>
+                <select
+                  value={assignedUserId}
+                  onChange={(event) => setAssignedUserId(event.target.value)}
+                  className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:border-gold/50"
+                  required
+                >
+                  <option value="">Assign rehearser</option>
+                  {assignableUsers.map((user) => (
+                    <option key={user.id} value={user.id}>{user.display_name}</option>
+                  ))}
+                </select>
+                {assignableUsers.length === 0 && (
+                  <p className="text-xs text-muted">
+                    No assignable rehearsers yet. Enable a user in the `Auditions Access` section below, then select them here.
+                  </p>
+                )}
+              </>
             )}
             <input
               type="file"
@@ -187,7 +213,7 @@ export function AuditionsDashboard({
             {error && <p className="text-sm text-red-400">{error}</p>}
             <button
               type="submit"
-              disabled={submitting || !file}
+              disabled={submitting || !file || (canManage && !assignedUserId)}
               className="rounded-xl bg-gold px-5 py-3 text-sm font-semibold text-black transition-colors hover:bg-gold-dim disabled:opacity-50"
             >
               {submitting ? 'Uploading...' : 'Upload Script'}
