@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import type { AuditionDetail } from '@/lib/auditions/data';
 import type { AuditionProgressionStep } from '@/lib/types';
 import { getAuditionStatusDescription, getAuditionStatusLabel } from '@/lib/auditions/status';
+import { AuditionProcessingPanel } from './processing-panel';
 
 interface UploadUser {
   id: string;
@@ -24,11 +25,33 @@ export function AuditionDetailView({
   viewerUserId,
   canManage,
   uploadUsers,
+  initialAiState,
 }: {
   initialDetail: AuditionDetail;
   viewerUserId: string;
   canManage: boolean;
   uploadUsers: UploadUser[];
+  initialAiState: {
+    linkedScript: { id: string; title: string; slug: string };
+    profiles: Array<{
+      id: string;
+      display_name: string;
+      voice_persona_id: string;
+      voice_persona_label: string | null;
+      status: string;
+      metadata?: Record<string, unknown>;
+    }>;
+    runs: Array<{
+      id: string;
+      status: string;
+      total_lines: number;
+      persisted_lines: number;
+      failed_lines: number;
+      created_at: string;
+      started_at: string | null;
+      finished_at: string | null;
+    }>;
+  } | null;
 }) {
   const [detail, setDetail] = useState(initialDetail);
   const [title, setTitle] = useState(initialDetail.script.title);
@@ -208,6 +231,13 @@ export function AuditionDetailView({
 
       {success && <p className="text-sm text-green-400">{success}</p>}
       {error && <p className="text-sm text-red-400">{error}</p>}
+
+      <AuditionProcessingPanel
+        auditionId={detail.script.id}
+        canManage={canManage}
+        linkedScriptId={detail.linkedScript?.id ?? null}
+        initialAiState={initialAiState}
+      />
 
       <section className="grid gap-8 lg:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-6">

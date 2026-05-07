@@ -57,6 +57,7 @@ export interface AuditionScript {
   created_at: string;
   processed_at: string | null;
   archived_at: string | null;
+  processing_notes: Record<string, unknown>;
 }
 
 export interface AuditionScene {
@@ -252,6 +253,9 @@ export interface Script {
   total_scenes: number;
   total_chunks: number;
   storage_prefix: string;
+  is_internal: boolean;
+  source_audition_script_id: string | null;
+  processing_metadata: Record<string, unknown>;
   created_at: string;
 }
 
@@ -273,6 +277,7 @@ export interface Scene {
   character_stats?: { name: string; dialogue_chunks: number; total_chunks: number }[];
   rehearsable_chunks: number;
   roll_calls?: RollCallEntry[];
+  processing_metadata?: Record<string, unknown>;
 }
 
 export interface Line {

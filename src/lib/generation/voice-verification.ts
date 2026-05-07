@@ -23,6 +23,8 @@ function buildVerificationLine(scriptId: string): GenerationSourceLine {
     id: 'voice-verification-line',
     scriptId,
     sceneId: 'voice-verification-scene',
+    sceneHeading: 'Voice Verification',
+    sceneMetadata: null,
     chunkIndex: 0,
     chunkInScene: 1,
     type: 'dialogue',
@@ -35,6 +37,7 @@ function buildVerificationLine(scriptId: string): GenerationSourceLine {
 
 function buildVerificationInterpretation(): GenerationLineInterpretation {
   return {
+    interpretationSource: 'fallback_heuristic',
     pauseBeforeMs: 0,
     pauseAfterMs: 0,
     emotionTags: ['calm'],

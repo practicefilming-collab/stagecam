@@ -20,6 +20,8 @@ export async function loadGenerationSourceLines(
       is_system,
       scenes!inner(
         id,
+        scene_heading,
+        processing_metadata,
         acts!inner(script_id)
       )
     `)
@@ -40,6 +42,8 @@ export async function loadGenerationSourceLines(
     id: row.id as string,
     scriptId,
     sceneId: row.scene_id as string,
+    sceneHeading: (row.scenes as { scene_heading?: string | null } | null)?.scene_heading ?? null,
+    sceneMetadata: ((row.scenes as { processing_metadata?: Record<string, unknown> | null } | null)?.processing_metadata ?? null) as Record<string, unknown> | null,
     chunkIndex: row.chunk_index as number,
     chunkInScene: row.chunk_in_scene as number,
     type: row.type as GenerationSourceLine['type'],

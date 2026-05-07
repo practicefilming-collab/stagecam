@@ -4,6 +4,8 @@ export interface GenerationSourceLine {
   id: string;
   scriptId: string;
   sceneId: string;
+  sceneHeading: string | null;
+  sceneMetadata: Record<string, unknown> | null;
   chunkIndex: number;
   chunkInScene: number;
   type: 'scene_heading' | 'action' | 'dialogue' | 'transition';
@@ -26,6 +28,7 @@ export interface GenerationAssignment {
 }
 
 export interface GenerationLineInterpretation {
+  interpretationSource: 'xai_grok' | 'fallback_heuristic';
   pauseBeforeMs: number;
   pauseAfterMs: number;
   emotionTags: string[];

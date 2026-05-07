@@ -7,6 +7,7 @@ import type {
   AuditionScript,
   AuditionTargetRole,
   Profile,
+  Script,
 } from '@/lib/types';
 
 export interface AuditionSceneWithRoles extends AuditionScene {
@@ -21,6 +22,7 @@ export interface AuditionDetail {
   scenes: AuditionSceneWithRoles[];
   targetRole: AuditionTargetRole | null;
   progress: AuditionSceneProgress[];
+  linkedScript: Pick<Script, 'id' | 'title' | 'slug' | 'is_internal'> | null;
 }
 
 export async function listAuditionScriptsForViewer(viewer: {
@@ -54,7 +56,7 @@ export async function getAuditionDetail(auditionId: string): Promise<AuditionDet
   if (error) throw error;
   if (!script) return null;
 
-  const [{ data: sceneRows }, { data: targetRoleRows }, { data: progressRows }, { data: profileRows }] = await Promise.all([
+  const [{ data: sceneRows }, { data: targetRoleRows }, { data: progressRows }, { data: profileRows }, { data: linkedScript }] = await Promise.all([
     admin
       .from('audition_scenes')
       .select('*, audition_roles(*)')
@@ -78,6 +80,11 @@ export async function getAuditionDetail(auditionId: string): Promise<AuditionDet
         script.uploaded_by_user_id,
         script.processed_by_admin_id,
       ].filter(Boolean)),
+    admin
+      .from('scripts')
+      .select('id, title, slug, is_internal')
+      .eq('source_audition_script_id', auditionId)
+      .maybeSingle(),
   ]);
 
   const profileMap = new Map<string, Pick<Profile, 'id' | 'display_name' | 'auditions_enabled' | 'is_admin'>>();
@@ -108,6 +115,7 @@ export async function getAuditionDetail(auditionId: string): Promise<AuditionDet
     scenes,
     targetRole: ((targetRoleRows ?? [])[0] as AuditionTargetRole | undefined) ?? null,
     progress: (progressRows ?? []) as AuditionSceneProgress[],
+    linkedScript: (linkedScript as Pick<Script, 'id' | 'title' | 'slug' | 'is_internal'> | null) ?? null,
   };
 }
 

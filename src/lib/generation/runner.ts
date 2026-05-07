@@ -26,7 +26,7 @@ function normalizeText(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
-function buildDefaultInterpretation(
+export function buildDefaultInterpretation(
   line: GenerationSourceLine,
   contextLines: GenerationSourceLine[]
 ): GenerationLineInterpretation {
@@ -68,6 +68,7 @@ function buildDefaultInterpretation(
   const pauseAfterMs = clamp(70 + Math.floor(text.split(/[.!?]/).length * 30), 0, 1500);
 
   return {
+    interpretationSource: 'fallback_heuristic',
     pauseBeforeMs,
     pauseAfterMs,
     emotionTags: [...emotionTags],

@@ -1,8 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { buildSyntheticAudioPlan, persistSyntheticAudioToR2 } from './storage';
 import { countGenerationStatuses, runGenerationBatch } from './runner';
+import { buildDefaultInterpretation } from './runner';
 import { loadGenerationSourceLines } from './source';
-import { synthesizeWithXaiTts } from './xai';
+import { interpretWithXai, synthesizeWithXaiTts } from './xai';
 import { recalculateGenerationRun } from './jobs';
 import type { AIProfile, LineGenerationRecord, ScriptGenerationRun, SceneGenerationJob } from '@/lib/types';
 import type {
@@ -125,17 +126,17 @@ function buildResumeSnapshot(
     const existing = existingRecordings.get(line.id);
     if (!existing) continue;
 
-    lineStates[line.id] = {
-      lineId: line.id,
-      status: 'persisted',
-      attemptCount: 1,
-      aiProfileId: null,
-      sceneId: line.sceneId,
-      scriptId: line.scriptId,
-      chunkIndex: line.chunkIndex,
-      chunkInScene: line.chunkInScene,
-      interpretation: null,
-      storagePlan: {
+      lineStates[line.id] = {
+        lineId: line.id,
+        status: 'persisted',
+        attemptCount: 1,
+        aiProfileId: null,
+        sceneId: line.sceneId,
+        scriptId: line.scriptId,
+        chunkIndex: line.chunkIndex,
+        chunkInScene: line.chunkInScene,
+        interpretation: null,
+        storagePlan: {
         storageKey: existing.video_url,
         contentType: existing.format ?? 'audio/mpeg',
         fileExtension: formatToExtension(existing.format),
@@ -304,6 +305,24 @@ async function executeSingleProfileRun(input: {
           fileExtension: response.fileExtension,
         };
       },
+      interpretLine: async ({ line, profile, contextLines }) => {
+        try {
+          const roleBrief =
+            typeof input.profile.metadata === 'object' && input.profile.metadata !== null
+              ? ((input.profile.metadata as Record<string, unknown>).roleBrief as Record<string, unknown> | undefined) ?? null
+              : null;
+          const response = await interpretWithXai({
+            apiKey: input.apiKey,
+            line,
+            profile,
+            contextLines,
+            roleBrief,
+          });
+          return response.interpretation;
+        } catch {
+          return buildDefaultInterpretation(line, contextLines);
+        }
+      },
       persistArtifact: async ({ line, profile, interpretation, synthesis, storagePlan }) => {
         await persistSyntheticAudioToR2({
           plan: storagePlan,
@@ -333,6 +352,7 @@ async function executeSingleProfileRun(input: {
           interpretation_request_payload: {
             voicePersonaId: input.profile.voice_persona_id,
             voicePersonaLabel: input.profile.voice_persona_label,
+            interpretationSource: interpretation.interpretationSource,
           },
           interpretation_response_payload: interpretation as unknown as Record<string, unknown>,
           synthesis_provider: 'Grok',
@@ -438,6 +458,7 @@ async function executeSingleProfileRun(input: {
       interpretation_request_payload: {
         voicePersonaId: input.profile.voice_persona_id,
         reusedExistingRecording: !!existingRecording,
+        interpretationSource: state.interpretation?.interpretationSource ?? null,
       },
       interpretation_response_payload: state.interpretation as unknown as Record<string, unknown> ?? {},
       synthesis_provider: existingRecording ? 'Grok' : null,

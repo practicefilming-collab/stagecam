@@ -17,6 +17,7 @@ export async function GET(request: Request) {
       .from('scripts')
       .select('*, acts(*, scenes(*))')
       .eq('slug', slug)
+      .eq('is_internal', false)
       .single();
     return NextResponse.json(script);
   }
@@ -24,6 +25,7 @@ export async function GET(request: Request) {
   const { data: scripts } = await supabase
     .from('scripts')
     .select('*')
+    .eq('is_internal', false)
     .order('rank', { ascending: true });
 
   return NextResponse.json(scripts ?? []);
