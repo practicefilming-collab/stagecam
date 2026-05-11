@@ -18,12 +18,6 @@ export default async function AuditionsPage() {
         .or('auditions_enabled.eq.true,is_admin.eq.true')
         .order('display_name')
     : { data: [{ id: viewer.userId, display_name: viewer.profile.display_name }] };
-  const { data: accessUsers } = viewer.profile.is_admin
-    ? await admin
-        .from('profiles')
-        .select('id, display_name, auditions_enabled, is_admin, auth_provider, platform_username, created_at')
-        .order('display_name')
-    : { data: [] };
 
   return (
     <AuditionsDashboard
@@ -31,7 +25,6 @@ export default async function AuditionsPage() {
       canManage={viewer.profile.is_admin}
       selfUserId={viewer.userId}
       uploadUsers={uploadUsers ?? []}
-      accessUsers={accessUsers ?? []}
     />
   );
 }

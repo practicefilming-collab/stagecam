@@ -3,21 +3,13 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { AuditionScript, AuthProvider } from '@/lib/types';
+import type { AuditionScript } from '@/lib/types';
 
 interface UploadUser {
   id: string;
   display_name: string;
-}
-
-interface AccessUser {
-  id: string;
-  display_name: string;
-  auditions_enabled: boolean;
-  is_admin: boolean;
-  auth_provider: AuthProvider;
-  platform_username: string | null;
-  created_at: string;
+  auditions_enabled?: boolean;
+  is_admin?: boolean;
 }
 
 export function AuditionsDashboard({
@@ -25,16 +17,13 @@ export function AuditionsDashboard({
   canManage,
   selfUserId,
   uploadUsers,
-  accessUsers,
 }: {
   initialScripts: AuditionScript[];
   canManage: boolean;
   selfUserId: string;
   uploadUsers: UploadUser[];
-  accessUsers: AccessUser[];
 }) {
   const [scripts, setScripts] = useState(initialScripts);
-  const [accessRoster, setAccessRoster] = useState(accessUsers);
   const [title, setTitle] = useState('');
   const [sourceLabel, setSourceLabel] = useState('');
   const [assignedUserId, setAssignedUserId] = useState(
@@ -42,7 +31,6 @@ export function AuditionsDashboard({
   );
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [toggleUserId, setToggleUserId] = useState<string | null>(null);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
   const router = useRouter();
@@ -52,13 +40,13 @@ export function AuditionsDashboard({
       return uploadUsers;
     }
 
-    return accessRoster
+    return uploadUsers
       .filter((user) => user.is_admin || user.auditions_enabled)
       .map((user) => ({
         id: user.id,
         display_name: user.display_name,
       }));
-  }, [accessRoster, canManage, uploadUsers]);
+  }, [canManage, uploadUsers]);
 
   const statusCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -102,36 +90,6 @@ export function AuditionsDashboard({
     setFile(null);
     setSuccess(`Uploaded "${payload.title}" successfully.`);
     setSubmitting(false);
-    router.refresh();
-  };
-
-  const toggleAuditionsAccess = async (user: AccessUser) => {
-    setToggleUserId(user.id);
-    setError('');
-    setSuccess('');
-
-    const res = await fetch(`/api/auditions/users/${user.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ auditions_enabled: !user.auditions_enabled }),
-    });
-
-    const payload = await res.json();
-    if (!res.ok) {
-      setError(payload.error || 'Could not update Auditions access');
-      setToggleUserId(null);
-      return;
-    }
-
-    setAccessRoster((prev) => prev.map((item) => (item.id === user.id ? payload : item)));
-    setSuccess(`${payload.display_name} is now ${payload.auditions_enabled ? 'enabled' : 'disabled'} for Auditions.`);
-    if (payload.auditions_enabled && !assignedUserId) {
-      setAssignedUserId(payload.id);
-    }
-    if (!payload.auditions_enabled && assignedUserId === payload.id) {
-      setAssignedUserId('');
-    }
-    setToggleUserId(null);
     router.refresh();
   };
 
@@ -197,7 +155,7 @@ export function AuditionsDashboard({
                 </select>
                 {assignableUsers.length === 0 && (
                   <p className="text-xs text-muted">
-                    No assignable rehearsers yet. Enable a user in the `Auditions Access` section below, then select them here.
+                    No assignable rehearsers yet. Grant StageCam Pro access from the global `Access` page, then select them here.
                   </p>
                 )}
               </>
@@ -256,59 +214,6 @@ export function AuditionsDashboard({
           </div>
         </div>
       </section>
-
-      {canManage && (
-        <section className="rounded-3xl border border-border bg-surface p-6">
-          <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-foreground">Auditions Access</h2>
-              <p className="mt-1 text-sm text-muted">
-                Enable or disable Auditions mode access without leaving the app. Admins always keep access.
-              </p>
-            </div>
-            <div className="text-xs text-muted">
-              {accessRoster.filter((user) => user.is_admin || user.auditions_enabled).length} users can currently enter Auditions
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            {accessRoster.map((user) => (
-              <div key={user.id} className="flex flex-col gap-3 rounded-2xl border border-border bg-background/40 p-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-medium text-foreground">{user.display_name}</h3>
-                    {user.is_admin && <span className="rounded-full border border-gold/30 px-2 py-0.5 text-[11px] text-gold">Admin</span>}
-                    {user.auditions_enabled && <span className="rounded-full border border-green-500/30 px-2 py-0.5 text-[11px] text-green-300">Auditions enabled</span>}
-                    {!user.auditions_enabled && !user.is_admin && <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted">No access</span>}
-                  </div>
-                  <p className="mt-1 text-xs text-muted">
-                    {user.auth_provider}
-                    {user.platform_username ? ` | ${user.platform_username}` : ''}
-                    {` | joined ${new Date(user.created_at).toLocaleDateString()}`}
-                  </p>
-                </div>
-                {!user.is_admin && (
-                  <button
-                    onClick={() => toggleAuditionsAccess(user)}
-                    disabled={toggleUserId === user.id}
-                    className={`rounded-xl px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
-                      user.auditions_enabled
-                        ? 'border border-red-500/30 text-red-300 hover:bg-red-500/10'
-                        : 'border border-gold/30 text-gold hover:bg-gold/10'
-                    }`}
-                  >
-                    {toggleUserId === user.id
-                      ? 'Saving...'
-                      : user.auditions_enabled
-                        ? 'Disable access'
-                        : 'Enable access'}
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
     </div>
   );
 }

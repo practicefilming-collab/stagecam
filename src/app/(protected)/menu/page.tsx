@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
@@ -9,9 +9,35 @@ export default function MenuPage() {
   const [joinCode, setJoinCode] = useState('');
   const [joining, setJoining] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
   const supabase = createClient();
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadAdminStatus() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || !active) return;
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('is_admin')
+        .eq('id', user.id)
+        .single();
+
+      if (active) {
+        setIsAdmin(profile?.is_admin ?? false);
+      }
+    }
+
+    void loadAdminStatus();
+
+    return () => {
+      active = false;
+    };
+  }, [supabase]);
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,6 +148,21 @@ export default function MenuPage() {
             Browse your past rehearsals and open Panel Viewer to download merged scene exports on demand.
           </p>
         </Link>
+
+        {isAdmin && (
+          <Link
+            href="/access"
+            className="group bg-surface border border-border rounded-2xl p-8 hover:border-gold/30 transition-all"
+          >
+            <div className="text-3xl mb-4">CONTROL</div>
+            <h2 className="text-xl font-semibold mb-2 group-hover:text-gold transition-colors">
+              Access
+            </h2>
+            <p className="text-sm text-muted">
+              Manage global admin roles and StageCam Pro invites.
+            </p>
+          </Link>
+        )}
       </div>
     </div>
   );

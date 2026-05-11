@@ -27,6 +27,7 @@ export function Header({ profile }: { profile: Profile }) {
       { href: '/pro/auditions', label: 'Auditions' },
     ] : []),
     ...(profile.is_admin ? [
+      { href: '/access', label: 'Access' },
       { href: '/clips', label: 'Clips' },
       { href: '/stats', label: 'Admin Stats' },
     ] : []),
