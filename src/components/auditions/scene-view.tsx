@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import Link from 'next/link';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { AuditionAttempt, AuditionProgressionStep, AuditionRole } from '@/lib/types';
 import type {
   AuditionDetail,
   AuditionSceneWithRoles,
-  AuditionTakeDetail,
   AuditionTakeSummary,
 } from '@/lib/auditions/data';
 import { summarizeSceneReadiness } from '@/lib/auditions/scene-runtime';
@@ -17,62 +17,6 @@ const STEPS: AuditionProgressionStep[] = [
   'cue_confidence',
   'room_ready',
 ];
-
-function renderTakeReview(selectedTake: AuditionTakeDetail | null): ReactNode {
-  if (!selectedTake) {
-    return (
-      <p className="mt-4 text-sm text-muted">Choose a take to review its cast plan and recorded clips.</p>
-    );
-  }
-
-  return (
-    <div className="mt-4 space-y-4">
-      <div className="rounded-2xl border border-border bg-background/40 p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-base font-medium">{selectedTake.title ?? `Take ${selectedTake.id.slice(0, 8)}`}</div>
-            <div className="mt-1 text-xs uppercase tracking-wide text-gold/80">{selectedTake.status}</div>
-          </div>
-          <div className="text-xs text-muted">{new Date(selectedTake.created_at).toLocaleString()}</div>
-        </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          {selectedTake.assignments.map((assignment) => (
-            <span key={assignment.id} className="rounded-full border border-border px-3 py-1 text-xs text-muted">
-              {assignment.role_name} • {assignment.assignment_type === 'fallback_audio' ? 'fallback' : 'human'}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-border bg-background/40 p-4">
-        <h3 className="text-sm font-semibold">Recorded clips</h3>
-        <div className="mt-4 space-y-4">
-          {selectedTake.clips.map((clip) => (
-            <div key={clip.id} className="rounded-2xl border border-border bg-surface/70 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-medium">{clip.role_name}</div>
-                  <div className="mt-1 text-xs text-muted">{clip.line_text}</div>
-                </div>
-                <div className="text-xs text-muted">{new Date(clip.created_at).toLocaleString()}</div>
-              </div>
-              {clip.signed_url ? (
-                <video src={clip.signed_url} controls className="mt-3 w-full rounded-xl bg-black" />
-              ) : (
-                <p className="mt-3 text-xs text-muted">Clip preview unavailable.</p>
-              )}
-            </div>
-          ))}
-          {selectedTake.clips.length === 0 && (
-            <p className="rounded-2xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted">
-              No clips uploaded yet for this take.
-            </p>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export function AuditionSceneView({
   detail,
@@ -94,8 +38,6 @@ export function AuditionSceneView({
   const [sceneText, setSceneText] = useState(scene.scene_text);
   const [rolesCsv, setRolesCsv] = useState(scene.roles.map((role) => role.name).join(', '));
   const [processingMetadata, setProcessingMetadata] = useState<Record<string, unknown>>(scene.processing_metadata ?? {});
-  const [selectedTakeId, setSelectedTakeId] = useState<string | null>(takes[0]?.id ?? null);
-  const [selectedTake, setSelectedTake] = useState<AuditionTakeDetail | null>(null);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -117,22 +59,6 @@ export function AuditionSceneView({
     ),
     [processingMetadata, rolesCsv, scene, sceneText],
   );
-
-  useEffect(() => {
-    if (!selectedTakeId) {
-      setSelectedTake(null);
-      return;
-    }
-
-    const load = async () => {
-      const res = await fetch(`/api/auditions/takes/${selectedTakeId}`);
-      if (!res.ok) return;
-      const payload = await res.json();
-      setSelectedTake(payload);
-    };
-
-    void load();
-  }, [selectedTakeId]);
 
   const saveScene = async () => {
     setSaving(true);
@@ -235,46 +161,33 @@ export function AuditionSceneView({
           <div className="rounded-3xl border border-border bg-surface p-6">
             <h2 className="text-lg font-semibold">Take ledger</h2>
             <p className="mt-1 text-sm text-muted">
-              Each take is a full scene run. Start new ones from the audition room, then review them here in chronological order.
+              Each take is a full scene run. Start new ones from the audition room, then open them to replay the whole scene.
             </p>
             <div className="mt-4 space-y-3">
               {takes.map((take) => (
-                <div
+                <Link
                   key={take.id}
-                  className={`overflow-hidden rounded-2xl border transition-colors ${
-                    selectedTakeId === take.id
-                      ? 'border-gold/40 bg-gold/10'
-                      : 'border-border bg-background/40 hover:border-gold/20'
-                  }`}
+                  href={`/pro/auditions/${detail.script.id}/scenes/${scene.id}/takes/${take.id}`}
+                  className="block rounded-2xl border border-border bg-background/40 px-4 py-4 transition-colors hover:border-gold/20 hover:bg-gold/5"
                 >
-                  <button
-                    onClick={() => setSelectedTakeId(take.id)}
-                    className="w-full px-4 py-4 text-left"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="font-medium">{take.title ?? `Take ${take.id.slice(0, 8)}`}</div>
-                        <div className="mt-1 text-xs uppercase tracking-wide text-gold/80">{take.status}</div>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {take.assignments.map((assignment) => (
-                            <span key={assignment.id} className="rounded-full border border-border px-2 py-1 text-[11px] text-muted">
-                              {assignment.role_name} • {assignment.assignment_type === 'fallback_audio' ? 'fallback' : 'human'}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="text-right text-xs text-muted">
-                        <div>{new Date(take.created_at).toLocaleString()}</div>
-                        <div className="mt-1">{take.clipCount} clips</div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-medium">{take.title ?? `Take ${take.id.slice(0, 8)}`}</div>
+                      <div className="mt-1 text-xs uppercase tracking-wide text-gold/80">{take.status}</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {take.assignments.map((assignment) => (
+                          <span key={assignment.id} className="rounded-full border border-border px-2 py-1 text-[11px] text-muted">
+                            {assignment.role_name} • {assignment.assignment_type === 'fallback_audio' ? 'fallback' : 'human'}
+                          </span>
+                        ))}
                       </div>
                     </div>
-                  </button>
-                  {selectedTakeId === take.id && (
-                    <div className="border-t border-gold/20 px-4 pb-4 lg:hidden">
-                      {renderTakeReview(selectedTake)}
+                    <div className="text-right text-xs text-muted">
+                      <div>{new Date(take.created_at).toLocaleString()}</div>
+                      <div className="mt-1">{take.clipCount} clips</div>
                     </div>
-                  )}
-                </div>
+                  </div>
+                </Link>
               ))}
               {takes.length === 0 && (
                 <p className="rounded-2xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted">
@@ -327,9 +240,11 @@ export function AuditionSceneView({
         </div>
 
         <div className="space-y-6">
-          <div className="hidden rounded-3xl border border-border bg-surface p-6 lg:block">
-            <h2 className="text-lg font-semibold">Selected take</h2>
-            {renderTakeReview(selectedTake)}
+          <div className="rounded-3xl border border-border bg-surface p-6">
+            <h2 className="text-lg font-semibold">Take review</h2>
+            <p className="mt-2 text-sm text-muted">
+              Click a take in the ledger to open a dedicated replay page for the full scene, following the Toy Story review flow.
+            </p>
           </div>
 
           {canManage && (
