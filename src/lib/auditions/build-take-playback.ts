@@ -8,6 +8,7 @@ import type {
 } from '@/lib/types';
 import { AUDITION_STORAGE_BUCKET } from './constants';
 import { buildAuditionSharedAudioUrlMap } from './level1-audio';
+import { buildParticipantRehearsalProgress, type AuditionParticipantRehearsalProgress } from './rehearsal-progress';
 import { parseAuditionSceneRuntimeLines } from './scene-runtime';
 
 export interface AuditionTakePlaybackItem {
@@ -46,6 +47,7 @@ export interface AuditionTakePlaybackData {
     ttsLines: number;
     systemLines: number;
   };
+  participantProgress: AuditionParticipantRehearsalProgress[];
 }
 
 export async function buildAuditionTakePlaybackData(takeId: string): Promise<AuditionTakePlaybackData | null> {
@@ -58,7 +60,7 @@ export async function buildAuditionTakePlaybackData(takeId: string): Promise<Aud
 
   if (!take) return null;
 
-  const [{ data: scene }, { data: script }, { data: assignments }, { data: clips }, { data: linkedScript }] = await Promise.all([
+  const [{ data: scene }, { data: script }, { data: assignments }, { data: clips }, { data: linkedScript }, { data: participants }] = await Promise.all([
     admin
       .from('audition_scenes')
       .select('id, label, order_index, source_page_ref, scene_text')
@@ -84,6 +86,13 @@ export async function buildAuditionTakePlaybackData(takeId: string): Promise<Aud
       .select('id')
       .eq('source_audition_script_id', take.audition_script_id)
       .maybeSingle(),
+    take.room_session_id
+      ? admin
+          .from('audition_room_participants')
+          .select('*, profiles(display_name)')
+          .eq('room_session_id', take.room_session_id)
+          .order('joined_at')
+      : Promise.resolve({ data: [] as never[], error: null }),
   ]);
 
   if (!scene || !script) return null;
@@ -175,5 +184,11 @@ export async function buildAuditionTakePlaybackData(takeId: string): Promise<Aud
       ttsLines: items.filter((item) => item.fallbackSource === 'tts').length,
       systemLines: items.filter((item) => item.isSystem).length,
     },
+    participantProgress: buildParticipantRehearsalProgress({
+      sceneText: scene.scene_text,
+      participants: (participants ?? []) as Array<Parameters<typeof buildParticipantRehearsalProgress>[0]['participants'][number]>,
+      assignments: (assignments ?? []) as AuditionTakeRoleAssignment[],
+      clips: (clips ?? []) as AuditionTakeClip[],
+    }),
   };
 }

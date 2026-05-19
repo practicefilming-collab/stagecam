@@ -14,6 +14,7 @@ import type {
   Script,
 } from '@/lib/types';
 import { loadAuditionSharedAudioCoverage, mergeLevel1AudioMetadata } from './level1-audio';
+import { buildParticipantRehearsalProgress, type AuditionParticipantRehearsalProgress } from './rehearsal-progress';
 import { summarizeSceneReadiness } from './scene-runtime';
 
 export interface AuditionSceneWithRoles extends AuditionScene {
@@ -44,6 +45,7 @@ export interface AuditionTakeSummary extends AuditionTake {
 export interface AuditionTakeDetail extends AuditionTakeSummary {
   clips: Array<AuditionTakeClip & { signed_url?: string | null }>;
   participants: Array<AuditionRoomParticipant & { profiles?: { display_name: string } | null }>;
+  participantProgress: AuditionParticipantRehearsalProgress[];
 }
 
 export async function listAuditionScriptsForViewer(viewer: {
@@ -228,7 +230,7 @@ export async function getAuditionTakeDetail(takeId: string): Promise<AuditionTak
   if (error) throw error;
   if (!take) return null;
 
-  const [{ data: assignments }, { data: clips }, { data: participants }] = await Promise.all([
+  const [{ data: assignments }, { data: clips }, { data: participants }, { data: scene }] = await Promise.all([
     admin
       .from('audition_take_role_assignments')
       .select('*')
@@ -247,15 +249,30 @@ export async function getAuditionTakeDetail(takeId: string): Promise<AuditionTak
           .eq('room_session_id', take.room_session_id)
           .order('joined_at')
       : Promise.resolve({ data: [] as never[], error: null }),
+    admin
+      .from('audition_scenes')
+      .select('scene_text')
+      .eq('id', take.audition_scene_id)
+      .maybeSingle(),
   ]);
+
+  const participantRows = (participants ?? []) as Array<AuditionRoomParticipant & { profiles?: { display_name: string } | null }>;
+  const clipRows = (clips ?? []) as AuditionTakeClip[];
+  const assignmentRows = (assignments ?? []) as AuditionTakeRoleAssignment[];
 
   return {
     ...(take as AuditionTake),
-    assignments: (assignments ?? []) as AuditionTakeRoleAssignment[],
-    clipCount: (clips ?? []).length,
-    participantIds: [...new Set((clips ?? []).map((clip) => clip.actor_user_id as string))],
-    clips: (clips ?? []) as AuditionTakeClip[],
-    participants: (participants ?? []) as Array<AuditionRoomParticipant & { profiles?: { display_name: string } | null }>,
+    assignments: assignmentRows,
+    clipCount: clipRows.length,
+    participantIds: [...new Set(clipRows.map((clip) => clip.actor_user_id as string))],
+    clips: clipRows,
+    participants: participantRows,
+    participantProgress: buildParticipantRehearsalProgress({
+      sceneText: scene?.scene_text ?? '',
+      participants: participantRows,
+      assignments: assignmentRows,
+      clips: clipRows,
+    }),
   };
 }
 

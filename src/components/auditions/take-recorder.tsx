@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useMediaDevices } from '@/hooks/use-media-devices';
 import { useRecording } from '@/hooks/use-recording';
 import type { AuditionTakePlaybackItem } from '@/lib/auditions/build-take-playback';
+import type { AuditionParticipantRehearsalProgress } from '@/lib/auditions/rehearsal-progress';
 import { parseAuditionSceneRuntimeLines, runtimeLinesForAssignments } from '@/lib/auditions/scene-runtime';
 import type { AuditionTakeDetail } from '@/lib/auditions/data';
 import type { AuditionScene, AuditionTakeClip } from '@/lib/types';
@@ -35,24 +36,22 @@ export function AuditionTakeRecorder({
   const [error, setError] = useState('');
   const [playbackItemsBySequence, setPlaybackItemsBySequence] = useState<Map<number, AuditionTakePlaybackItem>>(new Map());
   const [playingCueSequence, setPlayingCueSequence] = useState<number | null>(null);
+  const [uploadedSequenceIndexes, setUploadedSequenceIndexes] = useState<Set<number>>(
+    new Set(
+      take.clips
+        .filter((clip: AuditionTakeClip) => clip.actor_user_id === viewerUserId)
+        .map((clip) => clip.sequence_index),
+    ),
+  );
 
   const assignedLines = useMemo(
     () => runtimeLinesForAssignments(scene.scene_text, take.assignments, viewerUserId),
     [scene.scene_text, take.assignments, viewerUserId],
   );
 
-  const recordedSequenceIndexes = useMemo(
-    () => new Set(
-      take.clips
-        .filter((clip: AuditionTakeClip) => clip.actor_user_id === viewerUserId)
-        .map((clip) => clip.sequence_index),
-    ),
-    [take.clips, viewerUserId],
-  );
-
   const firstOpenIndex = useMemo(
-    () => assignedLines.findIndex((line) => !recordedSequenceIndexes.has(line.sequenceIndex)),
-    [assignedLines, recordedSequenceIndexes],
+    () => assignedLines.findIndex((line) => !uploadedSequenceIndexes.has(line.sequenceIndex)),
+    [assignedLines, uploadedSequenceIndexes],
   );
 
   useEffect(() => {
@@ -82,6 +81,31 @@ export function AuditionTakeRecorder({
   const currentLine = assignedLines[currentLineIdx] ?? null;
   const sceneRuntime = useMemo(() => parseAuditionSceneRuntimeLines(scene.scene_text), [scene.scene_text]);
   const currentPlaybackItem = currentLine ? playbackItemsBySequence.get(currentLine.sequenceIndex) ?? null : null;
+  const myProgress = take.participantProgress.find((item) => item.userId === viewerUserId) ?? null;
+  const participantState: AuditionParticipantRehearsalProgress['status'] = uploadedSequenceIndexes.size >= assignedLines.length
+    ? 'complete'
+    : uploading || recState === 'recorded'
+      ? 'awaiting_uploads'
+      : recState === 'recording'
+        ? 'recording'
+        : 'recording';
+
+  useEffect(() => {
+    const syncParticipantState = async () => {
+      await fetch(`/api/audition-rooms/${roomCode}/participants/me`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recording_state: participantState,
+          take_id: take.id,
+        }),
+      }).catch(() => undefined);
+    };
+
+    void syncParticipantState();
+    const interval = window.setInterval(() => void syncParticipantState(), 6000);
+    return () => window.clearInterval(interval);
+  }, [participantState, roomCode, take.id]);
 
   const playCue = (sequenceIndex: number) => {
     const item = playbackItemsBySequence.get(sequenceIndex);
@@ -116,6 +140,7 @@ export function AuditionTakeRecorder({
       return;
     }
 
+    setUploadedSequenceIndexes((current) => new Set([...current, currentLine.sequenceIndex]));
     reset();
     setUploading(false);
     router.refresh();
@@ -125,9 +150,9 @@ export function AuditionTakeRecorder({
     return (
       <div className="max-w-4xl mx-auto px-4 py-10 space-y-6">
         <div className="rounded-3xl border border-border bg-surface p-6">
-          <h1 className="text-2xl font-semibold text-gold">No human lines assigned in this take</h1>
+          <h1 className="text-2xl font-semibold text-gold">No human lines assigned in this rehearsal</h1>
           <p className="mt-2 text-sm text-muted">
-            Your role in this take is observer-only or handled through fallback audio. Return to the room to review the cast plan.
+            Your role in this rehearsal is observer-only or handled through fallback audio. Return to the room to review the cast plan.
           </p>
           <div className="mt-4">
             <Link href={`/rooms/auditions/${roomCode}`} className="rounded-xl border border-border px-4 py-3 text-sm text-muted hover:text-foreground">
@@ -150,7 +175,7 @@ export function AuditionTakeRecorder({
 
       <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-4 flex-shrink-0">
         <div>
-          <div className="text-sm text-muted">{scene.label} • Take {take.title ?? take.id.slice(0, 8)}</div>
+          <div className="text-sm text-muted">{scene.label} | Rehearsal {take.title ?? take.id.slice(0, 8)}</div>
           <div className="mt-1 text-xs uppercase tracking-wide text-gold/80">
             My line {currentLineIdx + 1}/{assignedLines.length}
           </div>
@@ -160,7 +185,7 @@ export function AuditionTakeRecorder({
         </Link>
       </div>
 
-      <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
+      <div className="flex-1 min-h-0 flex flex-col">
         <div className="relative bg-black flex-shrink-0 overflow-hidden" style={{ height: '32vh' }}>
           <audio
             ref={cueAudioRef}
@@ -193,79 +218,103 @@ export function AuditionTakeRecorder({
           )}
         </div>
 
-        <div className="flex-1 grid lg:grid-cols-[1.1fr_0.9fr] min-h-0">
-          <div className="p-5 overflow-y-auto border-b lg:border-b-0 lg:border-r border-border">
-            <div className="text-xs uppercase tracking-wide text-gold/80">Current line</div>
-            <div className="mt-2 text-lg font-semibold">{currentLine?.roleName}</div>
-            <p className="mt-3 whitespace-pre-wrap text-base leading-8">{currentLine?.text}</p>
-            {currentPlaybackItem?.ttsUrl && (
-              <button
-                onClick={() => playCue(currentLine!.sequenceIndex)}
-                className="mt-4 rounded-xl border border-gold/30 px-4 py-2 text-sm text-gold hover:bg-gold/10"
-              >
-                {playingCueSequence === currentLine?.sequenceIndex ? 'Playing cue...' : 'Play Level 1 cue'}
-              </button>
-            )}
-
-            <div className="mt-8 text-xs uppercase tracking-wide text-muted">Scene continuity</div>
-            <div className="mt-3 space-y-2">
-              {sceneRuntime.map((line) => (
-                <div
-                  key={line.sequenceIndex}
-                  className={`rounded-2xl border px-4 py-3 text-sm ${
-                    line.sequenceIndex === currentLine?.sequenceIndex
-                      ? 'border-gold/40 bg-gold/10'
-                      : recordedSequenceIndexes.has(line.sequenceIndex)
-                        ? 'border-green-500/20 bg-green-500/5'
-                        : 'border-border bg-background/40'
-                  }`}
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-5 space-y-8">
+            <section>
+              <div className="text-xs uppercase tracking-wide text-gold/80">Current line</div>
+              <div className="mt-2 text-lg font-semibold">{currentLine?.roleName}</div>
+              <p className="mt-3 whitespace-pre-wrap text-base leading-8">{currentLine?.text}</p>
+              {currentPlaybackItem?.ttsUrl && (
+                <button
+                  onClick={() => playCue(currentLine.sequenceIndex)}
+                  className="mt-4 rounded-xl border border-gold/30 px-4 py-2 text-sm text-gold hover:bg-gold/10"
                 >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-xs uppercase tracking-wide text-muted">
-                      {line.roleName ?? 'Cue'}
+                  {playingCueSequence === currentLine.sequenceIndex ? 'Playing cue...' : 'Play Level 1 cue'}
+                </button>
+              )}
+            </section>
+
+            <section>
+              <div className="text-xs uppercase tracking-wide text-muted">Scene continuity</div>
+              <div className="mt-3 space-y-2">
+                {sceneRuntime.map((line) => (
+                  <div
+                    key={line.sequenceIndex}
+                    className={`rounded-2xl border px-4 py-3 text-sm ${
+                      line.sequenceIndex === currentLine?.sequenceIndex
+                        ? 'border-gold/40 bg-gold/10'
+                        : uploadedSequenceIndexes.has(line.sequenceIndex)
+                          ? 'border-green-500/20 bg-green-500/5'
+                          : 'border-border bg-background/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-xs uppercase tracking-wide text-muted">
+                        {line.roleName ?? 'Cue'}
+                      </div>
+                      {(playbackItemsBySequence.get(line.sequenceIndex)?.ttsUrl || playbackItemsBySequence.get(line.sequenceIndex)?.recordingUrl) && (
+                        <button
+                          onClick={() => playCue(line.sequenceIndex)}
+                          className="rounded-lg border border-border px-2 py-1 text-[11px] text-muted hover:text-foreground"
+                        >
+                          {playingCueSequence === line.sequenceIndex ? 'Playing...' : 'Play'}
+                        </button>
+                      )}
                     </div>
-                    {(playbackItemsBySequence.get(line.sequenceIndex)?.ttsUrl || playbackItemsBySequence.get(line.sequenceIndex)?.recordingUrl) && (
-                      <button
-                        onClick={() => playCue(line.sequenceIndex)}
-                        className="rounded-lg border border-border px-2 py-1 text-[11px] text-muted hover:text-foreground"
-                      >
-                        {playingCueSequence === line.sequenceIndex ? 'Playing...' : 'Play'}
-                      </button>
-                    )}
-                  </div>
-                  <div className="mt-1">{line.text}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="p-5 overflow-y-auto">
-            <div className="text-xs uppercase tracking-wide text-gold/80">Assigned roles</div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {take.assignments
-                .filter((assignment) => assignment.user_id === viewerUserId && assignment.assignment_type === 'human')
-                .map((assignment) => (
-                  <span key={assignment.id} className="rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-xs text-gold">
-                    {assignment.role_name}
-                  </span>
-                ))}
-            </div>
-
-            <div className="mt-6 text-xs uppercase tracking-wide text-muted">Recorded clips</div>
-            <div className="mt-3 space-y-2">
-              {take.clips
-                .filter((clip) => clip.actor_user_id === viewerUserId)
-                .map((clip) => (
-                  <div key={clip.id} className="rounded-2xl border border-border bg-background/40 px-4 py-3 text-sm">
-                    <div className="font-medium">{clip.role_name}</div>
-                    <div className="mt-1 text-xs text-muted">{clip.line_text}</div>
+                    <div className="mt-1">{line.text}</div>
                   </div>
                 ))}
-            </div>
+              </div>
+            </section>
+
+            <section>
+              <div className="text-xs uppercase tracking-wide text-gold/80">Assigned roles</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {take.assignments
+                  .filter((assignment) => assignment.user_id === viewerUserId && assignment.assignment_type === 'human')
+                  .map((assignment) => (
+                    <span key={assignment.id} className="rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-xs text-gold">
+                      {assignment.role_name}
+                    </span>
+                  ))}
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-border bg-background/40 px-4 py-4 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div className="font-medium">My upload status</div>
+                <div className="text-xs uppercase tracking-wide text-muted">{(myProgress?.status ?? participantState).replace(/_/g, ' ')}</div>
+              </div>
+              <div className="mt-2 text-xs text-muted">
+                {uploadedSequenceIndexes.size}/{assignedLines.length} uploaded
+              </div>
+            </section>
+
+            <section>
+              <div className="text-xs uppercase tracking-wide text-muted">Recorded clips</div>
+              <div className="mt-3 space-y-2">
+                {take.clips
+                  .filter((clip) => clip.actor_user_id === viewerUserId)
+                  .map((clip) => (
+                    <div key={clip.id} className="rounded-2xl border border-border bg-background/40 px-4 py-3 text-sm">
+                      <div className="font-medium">{clip.role_name}</div>
+                      <div className="mt-1 text-xs text-muted">{clip.line_text}</div>
+                    </div>
+                  ))}
+              </div>
+            </section>
 
             {canControlTake && take.status !== 'completed' && (
               <button
                 onClick={async () => {
+                  await fetch(`/api/audition-rooms/${roomCode}/participants/me`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      recording_state: uploadedSequenceIndexes.size >= assignedLines.length ? 'complete' : 'awaiting_uploads',
+                      take_id: take.id,
+                    }),
+                  }).catch(() => undefined);
                   await fetch(`/api/auditions/takes/${take.id}`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
@@ -273,9 +322,9 @@ export function AuditionTakeRecorder({
                   });
                   router.push(`/pro/auditions/${take.audition_script_id}/scenes/${scene.id}`);
                 }}
-                className="mt-6 rounded-xl border border-gold/40 px-4 py-3 text-sm text-gold hover:bg-gold/10"
+                className="rounded-xl border border-gold/40 px-4 py-3 text-sm text-gold hover:bg-gold/10"
               >
-                Mark take complete
+                End rehearsal
               </button>
             )}
           </div>

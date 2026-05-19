@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin';
-import type { AuditionScript, AuditionTake, AuditionTakeRoleAssignment, Script } from '@/lib/types';
+import type { AuditionScript, AuditionTake, AuditionTakeClip, AuditionTakeRoleAssignment, Script } from '@/lib/types';
 import { loadAuditionSharedAudioCoverage, mergeLevel1AudioMetadata } from './level1-audio';
+import { buildParticipantRehearsalProgress } from './rehearsal-progress';
 
 export async function getAuditionRoomBundle(roomCode: string) {
   const admin = createAdminClient();
@@ -13,7 +14,7 @@ export async function getAuditionRoomBundle(roomCode: string) {
   if (error) throw error;
   if (!room) return null;
 
-  const [{ data: script }, { data: scenes }, { data: targetRoles }, { data: participants }, { data: activeTake }, { data: activeTakeAssignments }, { data: linkedScript }] = await Promise.all([
+  const [{ data: script }, { data: scenes }, { data: targetRoles }, { data: participants }, { data: activeTake }, { data: activeTakeAssignments }, { data: activeTakeClips }, { data: linkedScript }] = await Promise.all([
     admin.from('audition_scripts').select('*').eq('id', room.audition_script_id).single(),
     admin.from('audition_scenes').select('*, audition_roles(*)').eq('audition_script_id', room.audition_script_id).eq('is_active', true).order('order_index'),
     admin.from('audition_target_roles').select('*').eq('audition_script_id', room.audition_script_id),
@@ -24,6 +25,9 @@ export async function getAuditionRoomBundle(roomCode: string) {
     room.active_take_id
       ? admin.from('audition_take_role_assignments').select('*').eq('take_id', room.active_take_id).order('role_name')
       : Promise.resolve({ data: [] as AuditionTakeRoleAssignment[], error: null }),
+    room.active_take_id
+      ? admin.from('audition_take_clips').select('*').eq('take_id', room.active_take_id)
+      : Promise.resolve({ data: [] as AuditionTakeClip[], error: null }),
     admin.from('scripts').select('id').eq('source_audition_script_id', room.audition_script_id).maybeSingle(),
   ]);
 
@@ -35,6 +39,8 @@ export async function getAuditionRoomBundle(roomCode: string) {
     auditionScenes: sceneRows,
   });
 
+  const activeScene = sceneRows.find((scene) => scene.id === room.active_scene_id) ?? sceneRows[0] ?? null;
+
   return {
     room,
     script,
@@ -43,5 +49,13 @@ export async function getAuditionRoomBundle(roomCode: string) {
     participants: participants ?? [],
     activeTake: (activeTake as AuditionTake | null) ?? null,
     activeTakeAssignments: (activeTakeAssignments ?? []) as AuditionTakeRoleAssignment[],
+    participantProgress: activeScene
+      ? buildParticipantRehearsalProgress({
+          sceneText: activeScene.scene_text,
+          participants: (participants ?? []) as Array<Parameters<typeof buildParticipantRehearsalProgress>[0]['participants'][number]>,
+          assignments: (activeTakeAssignments ?? []) as AuditionTakeRoleAssignment[],
+          clips: (activeTakeClips ?? []) as AuditionTakeClip[],
+        })
+      : [],
   };
 }

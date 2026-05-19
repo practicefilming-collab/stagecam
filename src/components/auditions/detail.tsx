@@ -35,6 +35,16 @@ export function AuditionDetailView({
   uploadUsers: UploadUser[];
   initialAiState: {
     linkedScript: { id: string; title: string; slug: string };
+    roleBriefs: Array<{
+      roleName: string;
+      voiceId: string;
+      voiceLabel: string;
+      rationale: string;
+      defaultTone: string;
+      defaultPacing: string;
+      relationshipStance: string;
+      emphasisGuidance: string;
+    }>;
     profiles: Array<{
       id: string;
       display_name: string;

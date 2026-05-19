@@ -42,6 +42,7 @@ export type AuditionProgressionStep =
 export type AuditionAttemptOwnershipType = 'assigned_rehearser' | 'guest_participant';
 export type AuditionRoomStatus = 'waiting' | 'active' | 'ended';
 export type AuditionRoomParticipantRole = 'host' | 'assigned_rehearser' | 'guest' | 'admin';
+export type AuditionRoomParticipantRecordingState = 'idle' | 'recording' | 'awaiting_uploads' | 'complete';
 export type AuditionScriptRelationshipType = 'admin_to_assignee' | 'rehearsal_partner_to_assignee';
 export type AuditionScriptRelationshipScenarioSource = 'assignment_admin_access' | 'room_participation';
 export type AuditionTakeStatus = 'setup' | 'recording' | 'completed';
@@ -144,6 +145,9 @@ export interface AuditionRoomParticipant {
   room_session_id: string;
   user_id: string;
   role_type: AuditionRoomParticipantRole;
+  recording_state: AuditionRoomParticipantRecordingState | null;
+  recording_state_take_id: string | null;
+  recording_state_updated_at: string | null;
   joined_at: string;
   left_at: string | null;
 }

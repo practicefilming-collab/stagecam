@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { formatVoicePersonaLabel, XAI_TTS_VOICES } from '@/lib/generation/voices';
 import { summarizeSceneReadiness } from '@/lib/auditions/scene-runtime';
 import type {
   AuditionProcessingPreview,
@@ -12,6 +13,7 @@ import type { AuditionSceneWithRoles } from '@/lib/auditions/data';
 
 interface AuditionAiState {
   linkedScript: { id: string; title: string; slug: string };
+  roleBriefs: AuditionProcessingRoleBrief[];
   profiles: Array<{
     id: string;
     display_name: string;
@@ -55,6 +57,7 @@ export function AuditionProcessingPanel({
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [saving, setSaving] = useState(false);
   const [generatingLevel1, setGeneratingLevel1] = useState(false);
+  const [voiceSaving, setVoiceSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -70,21 +73,33 @@ export function AuditionProcessingPanel({
   function updateScene(index: number, patch: Partial<AuditionProcessingScenePreview>) {
     setPreview((current) => {
       if (!current) return current;
-      const scenes = current.scenes.map((scene, sceneIndex) =>
+      const updatedScenes = current.scenes.map((scene, sceneIndex) =>
         sceneIndex === index ? { ...scene, ...patch } : scene,
       );
-      return { ...current, scenes };
+      return { ...current, scenes: updatedScenes };
     });
   }
 
   function updateRoleBrief(index: number, patch: Partial<AuditionProcessingRoleBrief>) {
     setPreview((current) => {
       if (!current) return current;
-      const roleBriefs = current.roleBriefs.map((brief, briefIndex) =>
-        briefIndex === index ? { ...brief, ...patch } : brief,
-      );
-      return { ...current, roleBriefs };
+      return {
+        ...current,
+        roleBriefs: current.roleBriefs.map((brief, briefIndex) =>
+          briefIndex === index ? { ...brief, ...patch } : brief,
+        ),
+      };
     });
+    setAiState((current) =>
+      current
+        ? {
+            ...current,
+            roleBriefs: current.roleBriefs.map((brief, briefIndex) =>
+              briefIndex === index ? { ...brief, ...patch } : brief,
+            ),
+          }
+        : current,
+    );
   }
 
   if (!canManage) return null;
@@ -100,6 +115,7 @@ export function AuditionProcessingPanel({
       level1Audio: ((scene.processing_metadata?.level1_audio ?? {}) as Record<string, unknown>),
     };
   });
+  const activeRoleBriefs = preview?.roleBriefs ?? aiState?.roleBriefs ?? [];
 
   async function analyze() {
     setLoadingPreview(true);
@@ -139,26 +155,28 @@ export function AuditionProcessingPanel({
     router.refresh();
   }
 
-  async function createProfiles() {
-    setSaving(true);
+  async function saveVoiceFit() {
+    setVoiceSaving(true);
     setError('');
     setMessage('');
-    const res = await fetch(`/api/auditions/${auditionId}/ai`, { method: 'POST' });
+    const res = await fetch(`/api/auditions/${auditionId}/ai`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roleBriefs: activeRoleBriefs }),
+    });
     const payload = await res.json();
     if (!res.ok) {
-      setError(payload.error || 'Profile creation failed');
-      setSaving(false);
+      setError(payload.error || 'Voice sync failed');
+      setVoiceSaving(false);
       return;
     }
     setAiState((prev) =>
       prev
-        ? { ...prev, profiles: payload.profiles }
-        : initialAiState
-          ? { ...initialAiState, profiles: payload.profiles }
-          : null,
+        ? { ...prev, profiles: payload.profiles ?? prev.profiles, roleBriefs: payload.roleBriefs ?? prev.roleBriefs }
+        : payload,
     );
-    setMessage('AI profiles synchronized.');
-    setSaving(false);
+    setMessage('Voice fit saved to the hidden shared script.');
+    setVoiceSaving(false);
   }
 
   async function runAi() {
@@ -207,7 +225,7 @@ export function AuditionProcessingPanel({
         <div>
           <h2 className="text-lg font-semibold">Scene Readiness Pipeline</h2>
           <p className="mt-1 text-sm text-muted">
-            Move each scene from admin prep to room-ready use. Level 1 unlocks room takes, while Levels 2 and 3 upgrade voice quality and expressive guidance.
+            Move each scene from admin prep to room-ready use. Level 1 unlocks room rehearsals, while higher levels upgrade voice quality and expressive guidance.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -227,7 +245,7 @@ export function AuditionProcessingPanel({
           </button>
           <button
             onClick={generateLevel1Audio}
-            disabled={generatingLevel1 || saving}
+            disabled={generatingLevel1 || saving || voiceSaving}
             className="rounded-xl border border-gold/40 px-4 py-2 text-sm text-gold hover:bg-gold/10 disabled:opacity-50"
           >
             {generatingLevel1 ? 'Generating Level 1...' : 'Generate Level 1 audio'}
@@ -240,11 +258,11 @@ export function AuditionProcessingPanel({
             {saving ? 'Working...' : 'Apply scene prep'}
           </button>
           <button
-            onClick={createProfiles}
-            disabled={saving}
+            onClick={saveVoiceFit}
+            disabled={voiceSaving || activeRoleBriefs.length === 0}
             className="rounded-xl border border-border px-4 py-2 text-sm text-muted hover:text-foreground disabled:opacity-50"
           >
-            Sync role voices
+            {voiceSaving ? 'Saving voices...' : 'Save voice fit'}
           </button>
           <button
             onClick={runAi}
@@ -273,7 +291,7 @@ export function AuditionProcessingPanel({
               </div>
             )}
             <div className="mt-3 text-xs text-muted">
-              Sample: {card.sampleRoleName ? `${card.sampleRoleName} — ${card.sampleLine ?? 'No line yet'}` : card.sampleLine ?? 'No line available'}
+              Sample: {card.sampleRoleName ? `${card.sampleRoleName} - ${card.sampleLine ?? 'No line yet'}` : card.sampleLine ?? 'No line available'}
             </div>
           </div>
         ))}
@@ -304,6 +322,37 @@ export function AuditionProcessingPanel({
               ))}
               {aiState.runs.length === 0 && <p className="text-sm text-muted">No AI runs queued yet.</p>}
             </div>
+          </div>
+        </div>
+      )}
+
+      {activeRoleBriefs.length > 0 && (
+        <div className="mt-6 rounded-2xl border border-border bg-background/40 p-4">
+          <div className="mb-4 flex items-center justify-between">
+            <div className="text-xs uppercase tracking-wide text-gold/80">Voice fit review</div>
+            <div className="text-xs text-muted">Correct character voice fit before regeneration</div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {activeRoleBriefs.map((brief, index) => (
+              <div key={`${brief.roleName}-${index}`} className="rounded-2xl border border-border p-4 space-y-3">
+                <div className="font-medium">{brief.roleName}</div>
+                <select
+                  value={brief.voiceId}
+                  onChange={(event) => updateRoleBrief(index, {
+                    voiceId: event.target.value,
+                    voiceLabel: formatVoicePersonaLabel(event.target.value) ?? event.target.value,
+                  })}
+                  className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:border-gold/50"
+                >
+                  {XAI_TTS_VOICES.map((voiceId) => (
+                    <option key={voiceId} value={voiceId}>
+                      {formatVoicePersonaLabel(voiceId) ?? voiceId}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted">{brief.rationale}</p>
+              </div>
+            ))}
           </div>
         </div>
       )}

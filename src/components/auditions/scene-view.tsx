@@ -159,9 +159,9 @@ export function AuditionSceneView({
           </div>
 
           <div className="rounded-3xl border border-border bg-surface p-6">
-            <h2 className="text-lg font-semibold">Take ledger</h2>
+            <h2 className="text-lg font-semibold">Rehearsal ledger</h2>
             <p className="mt-1 text-sm text-muted">
-              Each take is a full scene run. Start new ones from the audition room, then open them to replay the whole scene.
+              Each rehearsal is a full scene run. Start new ones from the audition room, then open them to replay the whole scene.
             </p>
             <div className="mt-4 space-y-3">
               {takes.map((take) => (
@@ -172,7 +172,7 @@ export function AuditionSceneView({
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="font-medium">{take.title ?? `Take ${take.id.slice(0, 8)}`}</div>
+                      <div className="font-medium">{take.title ?? `Rehearsal ${take.id.slice(0, 8)}`}</div>
                       <div className="mt-1 text-xs uppercase tracking-wide text-gold/80">{take.status}</div>
                       <div className="mt-2 flex flex-wrap gap-2">
                         {take.assignments.map((assignment) => (
@@ -191,7 +191,7 @@ export function AuditionSceneView({
               ))}
               {takes.length === 0 && (
                 <p className="rounded-2xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted">
-                  No takes have been recorded for this scene yet.
+                  No rehearsals have been recorded for this scene yet.
                 </p>
               )}
             </div>
@@ -240,10 +240,10 @@ export function AuditionSceneView({
         </div>
 
         <div className="space-y-6">
-          <div className="rounded-3xl border border-border bg-surface p-6">
-            <h2 className="text-lg font-semibold">Take review</h2>
+            <div className="rounded-3xl border border-border bg-surface p-6">
+            <h2 className="text-lg font-semibold">Rehearsal review</h2>
             <p className="mt-2 text-sm text-muted">
-              Click a take in the ledger to open a dedicated replay page for the full scene, following the Toy Story review flow.
+              Click a rehearsal in the ledger to open a dedicated replay page for the full scene, following the Toy Story review flow.
             </p>
           </div>
 

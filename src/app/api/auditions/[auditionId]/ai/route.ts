@@ -5,11 +5,14 @@ import {
   buildAuditionProcessingPreview,
   ensureAuditionAiProfiles,
   hydratePreviewFromStoredConfig,
+  sanitizeAuditionProcessingPreview,
+  type AuditionProcessingRoleBrief,
   type AuditionProcessingStoredConfig,
   type AuditionProcessingPreview,
 } from '@/lib/auditions/processing';
 import { buildSceneJobSeeds, enqueueSceneGenerationJobs } from '@/lib/generation/jobs';
 import { loadGenerationSourceLines } from '@/lib/generation/source';
+import { formatVoicePersonaLabel } from '@/lib/generation/voices';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 export const runtime = 'nodejs';
@@ -59,7 +62,7 @@ export async function GET(
   if (!canManageAuditionScript(viewer)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   try {
-    const { admin, linkedScript } = await requireAuditionAndScript(auditionId);
+    const { admin, audition, linkedScript } = await requireAuditionAndScript(auditionId);
     const [{ data: profiles }, { data: runs }] = await Promise.all([
       admin
         .from('ai_profiles')
@@ -80,6 +83,7 @@ export async function GET(
         title: linkedScript.title,
         slug: linkedScript.slug,
       },
+      roleBriefs: getStoredPreview({ audition })?.roleBriefs ?? [],
       profiles: profiles ?? [],
       runs: runs ?? [],
     });
@@ -92,7 +96,7 @@ export async function GET(
 }
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ auditionId: string }> },
 ) {
   const { auditionId } = await params;
@@ -102,13 +106,38 @@ export async function POST(
 
   try {
     const { admin, audition, linkedScript } = await requireAuditionAndScript(auditionId);
+    const body = await request.json().catch(() => ({} as { roleBriefs?: AuditionProcessingRoleBrief[] }));
     const preview = getStoredPreview({ audition }) ?? await buildAuditionProcessingPreview({ admin, script: audition });
+    const roleBriefs = Array.isArray(body.roleBriefs) && body.roleBriefs.length > 0
+      ? sanitizeAuditionProcessingPreview({
+          ...preview,
+          roleBriefs: body.roleBriefs.map((brief: AuditionProcessingRoleBrief) => ({
+            ...brief,
+            voiceLabel: formatVoicePersonaLabel(brief.voiceId) ?? brief.voiceLabel,
+          })),
+        }).roleBriefs
+      : preview.roleBriefs;
 
     await ensureAuditionAiProfiles({
       admin,
       scriptId: linkedScript.id,
-      roleBriefs: preview.roleBriefs,
+      roleBriefs,
     });
+
+    if (audition.processing_notes?.appliedConfig && typeof audition.processing_notes.appliedConfig === 'object') {
+      await admin
+        .from('audition_scripts')
+        .update({
+          processing_notes: {
+            ...(audition.processing_notes ?? {}),
+            appliedConfig: {
+              ...(audition.processing_notes.appliedConfig as AuditionProcessingStoredConfig),
+              roleBriefs,
+            },
+          },
+        })
+        .eq('id', audition.id);
+    }
 
     const { data: profiles } = await admin
       .from('ai_profiles')
@@ -116,7 +145,7 @@ export async function POST(
       .eq('script_id', linkedScript.id)
       .order('created_at', { ascending: true });
 
-    return NextResponse.json({ ok: true, profiles: profiles ?? [] });
+    return NextResponse.json({ ok: true, profiles: profiles ?? [], roleBriefs });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to create audition AI profiles' },

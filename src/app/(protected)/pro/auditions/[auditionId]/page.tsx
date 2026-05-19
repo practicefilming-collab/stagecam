@@ -5,6 +5,7 @@ import {
   getAuditionScriptAccessContext,
   getAuditionViewerContext,
 } from '@/lib/auditions/auth';
+import { hydratePreviewFromStoredConfig, type AuditionProcessingStoredConfig } from '@/lib/auditions/processing';
 import { getAuditionDetail } from '@/lib/auditions/data';
 import { createAdminClient } from '@/lib/supabase/admin';
 
@@ -54,6 +55,17 @@ export default async function AuditionDetailPage({
             title: linkedScript.title,
             slug: linkedScript.slug,
           },
+          roleBriefs: (() => {
+            const storedConfig = detail.script.processing_notes?.appliedConfig;
+            if (!storedConfig || typeof storedConfig !== 'object') return [];
+            return hydratePreviewFromStoredConfig({
+              auditionId: detail.script.id,
+              title: detail.script.title,
+              sourceLabel: detail.script.source_label,
+              originalFilename: detail.script.original_filename,
+              storedConfig: storedConfig as AuditionProcessingStoredConfig,
+            }).roleBriefs;
+          })(),
           profiles: profiles ?? [],
           runs: runs ?? [],
         };

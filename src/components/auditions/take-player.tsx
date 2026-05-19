@@ -141,7 +141,7 @@ export function AuditionTakePlayer({
     <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-8">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-gold/80">Take replay</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-gold/80">Rehearsal replay</p>
           <h1 className="mt-2 text-3xl font-bold text-gold">{takeLabel}</h1>
           <p className="mt-2 text-sm text-muted">
             {data.script.title} • {data.scene.label}
@@ -156,8 +156,8 @@ export function AuditionTakePlayer({
         </Link>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-border bg-surface">
-        <div className="border-b border-border px-4 py-3">
+        <div className="overflow-hidden rounded-2xl border border-border bg-surface">
+          <div className="border-b border-border px-4 py-3">
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-sm font-medium text-gold">
@@ -175,9 +175,29 @@ export function AuditionTakePlayer({
           <div className="mt-2 h-1 rounded-full bg-border">
             <div className="h-full rounded-full bg-gold transition-all" style={{ width: `${progress}%` }} />
           </div>
-        </div>
+          </div>
 
-        <div className="relative mx-auto aspect-[9/16] max-h-[50vh] w-full bg-black">
+          {data.participantProgress.length > 0 && (
+            <div className="border-b border-border bg-background/40 px-4 py-4">
+              <div className="text-xs uppercase tracking-wide text-gold/80">Participant upload progress</div>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                {data.participantProgress.map((participant) => (
+                  <div key={participant.userId} className="rounded-2xl border border-border bg-surface px-4 py-3 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="font-medium">{participant.displayName ?? participant.userId}</div>
+                      <div className="text-xs uppercase tracking-wide text-muted">{participant.status.replace(/_/g, ' ')}</div>
+                    </div>
+                    <div className="mt-2 text-xs text-muted">
+                      {participant.uploadedLineCount}/{participant.assignedLineCount} uploaded
+                      {participant.remainingLineCount > 0 ? ` • ${participant.remainingLineCount} still using fallback` : ''}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="relative mx-auto aspect-[9/16] max-h-[50vh] w-full bg-black">
           <video
             ref={videoRef}
             playsInline
