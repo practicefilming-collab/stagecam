@@ -86,10 +86,13 @@ export function summarizeSceneReadiness(scene: AuditionScene, roleNames: string[
   const dialogueLines = runtimeLines.filter((line) => line.kind === 'dialogue');
   const processingMetadata = scene.processing_metadata ?? {};
   const ai = (processingMetadata.ai ?? {}) as Record<string, unknown>;
+  const level1Audio = (processingMetadata.level1_audio ?? {}) as Record<string, unknown>;
   const requestedLevel = String(processingMetadata.readiness_level ?? '').trim();
   const scenePrepared = Boolean(scene.scene_text.trim());
   const rolesPrepared = roleNames.length > 0;
-  const level1Ready = scenePrepared && rolesPrepared;
+  const requiredLineCount = Number(level1Audio.required_line_count ?? runtimeLines.length);
+  const readyLineCount = Number(level1Audio.ready_line_count ?? 0);
+  const level1Ready = scenePrepared && rolesPrepared && requiredLineCount > 0 && readyLineCount >= requiredLineCount;
   const level2Ready = level1Ready && Boolean(ai.level2_ready);
   const level3Ready = level2Ready && Boolean(ai.level3_ready);
 
@@ -98,7 +101,7 @@ export function summarizeSceneReadiness(scene: AuditionScene, roleNames: string[
     level = 'level_3_ready';
   } else if (level2Ready || requestedLevel === 'level_2_ready') {
     level = 'level_2_ready';
-  } else if (level1Ready || requestedLevel === 'level_1_ready') {
+  } else if (level1Ready || (requestedLevel === 'level_1_ready' && readyLineCount >= requiredLineCount && requiredLineCount > 0)) {
     level = 'level_1_ready';
   }
 

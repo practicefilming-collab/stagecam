@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMediaDevices } from '@/hooks/use-media-devices';
 import { useRecording } from '@/hooks/use-recording';
+import type { AuditionTakePlaybackItem } from '@/lib/auditions/build-take-playback';
 import { parseAuditionSceneRuntimeLines, runtimeLinesForAssignments } from '@/lib/auditions/scene-runtime';
 import type { AuditionTakeDetail } from '@/lib/auditions/data';
 import type { AuditionScene, AuditionTakeClip } from '@/lib/types';
@@ -28,9 +29,12 @@ export function AuditionTakeRecorder({
   const { stream, error: mediaError, hasPermission, videoRef, requestPermission } = useMediaDevices();
   const { state: recState, blob, previewUrl, duration, startRecording, stopRecording, reset } = useRecording();
   const playbackRef = useRef<HTMLVideoElement>(null);
+  const cueAudioRef = useRef<HTMLAudioElement>(null);
   const [currentLineIdx, setCurrentLineIdx] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+  const [playbackItemsBySequence, setPlaybackItemsBySequence] = useState<Map<number, AuditionTakePlaybackItem>>(new Map());
+  const [playingCueSequence, setPlayingCueSequence] = useState<number | null>(null);
 
   const assignedLines = useMemo(
     () => runtimeLinesForAssignments(scene.scene_text, take.assignments, viewerUserId),
@@ -63,8 +67,31 @@ export function AuditionTakeRecorder({
     }
   }, [firstOpenIndex]);
 
+  useEffect(() => {
+    const loadPlayback = async () => {
+      const res = await fetch(`/api/auditions/takes/${take.id}/playback`);
+      if (!res.ok) return;
+      const payload = await res.json().catch(() => null);
+      const items = Array.isArray(payload?.items) ? payload.items as AuditionTakePlaybackItem[] : [];
+      setPlaybackItemsBySequence(new Map(items.map((item) => [item.lineIndex, item])));
+    };
+
+    void loadPlayback();
+  }, [take.id]);
+
   const currentLine = assignedLines[currentLineIdx] ?? null;
   const sceneRuntime = useMemo(() => parseAuditionSceneRuntimeLines(scene.scene_text), [scene.scene_text]);
+  const currentPlaybackItem = currentLine ? playbackItemsBySequence.get(currentLine.sequenceIndex) ?? null : null;
+
+  const playCue = (sequenceIndex: number) => {
+    const item = playbackItemsBySequence.get(sequenceIndex);
+    const url = item?.ttsUrl ?? item?.recordingUrl ?? null;
+    if (!url || !cueAudioRef.current) return;
+    cueAudioRef.current.pause();
+    cueAudioRef.current.src = url;
+    setPlayingCueSequence(sequenceIndex);
+    void cueAudioRef.current.play().catch(() => setPlayingCueSequence(null));
+  };
 
   const uploadClip = async () => {
     if (!blob || !currentLine) return;
@@ -135,6 +162,11 @@ export function AuditionTakeRecorder({
 
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
         <div className="relative bg-black flex-shrink-0 overflow-hidden" style={{ height: '32vh' }}>
+          <audio
+            ref={cueAudioRef}
+            onEnded={() => setPlayingCueSequence(null)}
+            onPause={() => setPlayingCueSequence(null)}
+          />
           <video
             key="live-camera"
             ref={videoRef}
@@ -166,6 +198,14 @@ export function AuditionTakeRecorder({
             <div className="text-xs uppercase tracking-wide text-gold/80">Current line</div>
             <div className="mt-2 text-lg font-semibold">{currentLine?.roleName}</div>
             <p className="mt-3 whitespace-pre-wrap text-base leading-8">{currentLine?.text}</p>
+            {currentPlaybackItem?.ttsUrl && (
+              <button
+                onClick={() => playCue(currentLine!.sequenceIndex)}
+                className="mt-4 rounded-xl border border-gold/30 px-4 py-2 text-sm text-gold hover:bg-gold/10"
+              >
+                {playingCueSequence === currentLine?.sequenceIndex ? 'Playing cue...' : 'Play Level 1 cue'}
+              </button>
+            )}
 
             <div className="mt-8 text-xs uppercase tracking-wide text-muted">Scene continuity</div>
             <div className="mt-3 space-y-2">
@@ -180,8 +220,18 @@ export function AuditionTakeRecorder({
                         : 'border-border bg-background/40'
                   }`}
                 >
-                  <div className="text-xs uppercase tracking-wide text-muted">
-                    {line.roleName ?? 'Cue'}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs uppercase tracking-wide text-muted">
+                      {line.roleName ?? 'Cue'}
+                    </div>
+                    {(playbackItemsBySequence.get(line.sequenceIndex)?.ttsUrl || playbackItemsBySequence.get(line.sequenceIndex)?.recordingUrl) && (
+                      <button
+                        onClick={() => playCue(line.sequenceIndex)}
+                        className="rounded-lg border border-border px-2 py-1 text-[11px] text-muted hover:text-foreground"
+                      >
+                        {playingCueSequence === line.sequenceIndex ? 'Playing...' : 'Play'}
+                      </button>
+                    )}
                   </div>
                   <div className="mt-1">{line.text}</div>
                 </div>

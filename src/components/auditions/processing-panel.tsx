@@ -54,6 +54,7 @@ export function AuditionProcessingPanel({
   const [aiState, setAiState] = useState<AuditionAiState | null>(initialAiState);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [generatingLevel1, setGeneratingLevel1] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -96,6 +97,7 @@ export function AuditionProcessingPanel({
       level: readiness.level,
       sampleRoleName: readiness.sampleRoleName,
       sampleLine: readiness.sampleLine,
+      level1Audio: ((scene.processing_metadata?.level1_audio ?? {}) as Record<string, unknown>),
     };
   });
 
@@ -179,6 +181,26 @@ export function AuditionProcessingPanel({
     await loadAiState();
   }
 
+  async function generateLevel1Audio() {
+    setGeneratingLevel1(true);
+    setError('');
+    setMessage('');
+    const res = await fetch(`/api/auditions/${auditionId}/level1`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ regenerate: false }),
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(payload.error || 'Level 1 audio generation failed');
+      setGeneratingLevel1(false);
+      return;
+    }
+    setMessage(`Level 1 audio ready across ${payload.sceneCount} scenes (${payload.generatedCount} generated, ${payload.reusedCount} reused).`);
+    setGeneratingLevel1(false);
+    router.refresh();
+  }
+
   return (
     <section className="rounded-3xl border border-border bg-surface p-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -202,6 +224,13 @@ export function AuditionProcessingPanel({
             className="rounded-xl border border-border px-4 py-2 text-sm text-muted hover:text-foreground disabled:opacity-50"
           >
             Refresh AI state
+          </button>
+          <button
+            onClick={generateLevel1Audio}
+            disabled={generatingLevel1 || saving}
+            className="rounded-xl border border-gold/40 px-4 py-2 text-sm text-gold hover:bg-gold/10 disabled:opacity-50"
+          >
+            {generatingLevel1 ? 'Generating Level 1...' : 'Generate Level 1 audio'}
           </button>
           <button
             onClick={apply}
@@ -235,6 +264,14 @@ export function AuditionProcessingPanel({
           <div key={card.sceneId} className="rounded-2xl border border-border bg-background/40 p-4">
             <div className="text-xs uppercase tracking-wide text-gold/80">{card.level.replace(/_/g, ' ')}</div>
             <div className="mt-2 text-sm font-medium">{card.label}</div>
+            <div className="mt-3 text-xs text-muted">
+              Level 1 audio: {Number(card.level1Audio.ready_line_count ?? 0)}/{Number(card.level1Audio.required_line_count ?? 0)} ready
+            </div>
+            {Number(card.level1Audio.failed_line_count ?? 0) > 0 && (
+              <div className="mt-1 text-xs text-red-300">
+                {Number(card.level1Audio.failed_line_count)} failed
+              </div>
+            )}
             <div className="mt-3 text-xs text-muted">
               Sample: {card.sampleRoleName ? `${card.sampleRoleName} — ${card.sampleLine ?? 'No line yet'}` : card.sampleLine ?? 'No line available'}
             </div>

@@ -112,7 +112,7 @@ export function AuditionTakePlayer({
       )}
       {!item.hasRecording && (
         <p className="mt-4 text-xs text-muted">
-          Fallback scene text
+          {item.ttsUrl ? 'Level 1 cue audio' : 'Fallback scene text'}
         </p>
       )}
     </div>

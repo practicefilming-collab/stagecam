@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin';
-import type { AuditionTake, AuditionTakeRoleAssignment } from '@/lib/types';
+import type { AuditionLevel1AudioAsset, AuditionTake, AuditionTakeRoleAssignment } from '@/lib/types';
+import { listLevel1AudioAssetsForScenes, mergeLevel1AudioMetadata } from './level1-audio';
 
 export async function getAuditionRoomBundle(roomCode: string) {
   const admin = createAdminClient();
@@ -25,10 +26,13 @@ export async function getAuditionRoomBundle(roomCode: string) {
       : Promise.resolve({ data: [] as AuditionTakeRoleAssignment[], error: null }),
   ]);
 
+  const sceneRows = (scenes ?? []);
+  const level1Assets = await listLevel1AudioAssetsForScenes(admin, sceneRows.map((scene) => String(scene.id)));
+
   return {
     room,
     script,
-    scenes: scenes ?? [],
+    scenes: mergeLevel1AudioMetadata(sceneRows, level1Assets as AuditionLevel1AudioAsset[]),
     targetRole: (targetRoles ?? [])[0] ?? null,
     participants: participants ?? [],
     activeTake: (activeTake as AuditionTake | null) ?? null,

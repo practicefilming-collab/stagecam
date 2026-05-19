@@ -1,10 +1,12 @@
 import { createAdminClient } from '@/lib/supabase/admin';
 import type {
+  AuditionLevel1AudioAsset,
   AuditionTake,
   AuditionTakeClip,
   AuditionTakeRoleAssignment,
 } from '@/lib/types';
 import { AUDITION_STORAGE_BUCKET } from './constants';
+import { buildSignedLevel1AudioUrlMap, listLevel1AudioAssetsForScenes } from './level1-audio';
 import { parseAuditionSceneRuntimeLines } from './scene-runtime';
 
 export interface AuditionTakePlaybackItem {
@@ -81,6 +83,10 @@ export async function buildAuditionTakePlaybackData(takeId: string): Promise<Aud
   if (!scene || !script) return null;
 
   const runtimeLines = parseAuditionSceneRuntimeLines(scene.scene_text);
+  const level1Assets = await listLevel1AudioAssetsForScenes(admin, [scene.id]);
+  const level1AudioMap = new Map(
+    (level1Assets as AuditionLevel1AudioAsset[]).map((asset) => [asset.sequence_index, asset]),
+  );
   const latestClipBySequence = new Map<number, AuditionTakeClip & { profiles?: { display_name: string } | null }>();
   for (const clip of ((clips ?? []) as Array<AuditionTakeClip & { profiles?: { display_name: string } | null }>)) {
     if (!latestClipBySequence.has(clip.sequence_index)) {
@@ -100,9 +106,11 @@ export async function buildAuditionTakePlaybackData(takeId: string): Promise<Aud
       .createSignedUrl(clip.storage_key, 60 * 60);
     signedUrls.set(sequenceIndex, data?.signedUrl ?? null);
   }
+  const level1SignedUrls = await buildSignedLevel1AudioUrlMap(level1Assets as AuditionLevel1AudioAsset[]);
 
   const items: AuditionTakePlaybackItem[] = runtimeLines.map((line) => {
     const clip = latestClipBySequence.get(line.sequenceIndex);
+    const level1Asset = level1AudioMap.get(line.sequenceIndex) ?? null;
     const assignment = line.roleName ? assignmentByRole.get(line.roleName) : null;
     const recordedByAssignedUser = Boolean(
       clip && assignment && assignment.assignment_type === 'human' && assignment.user_id && assignment.user_id === clip.actor_user_id,
@@ -122,8 +130,12 @@ export async function buildAuditionTakePlaybackData(takeId: string): Promise<Aud
       performerName: clip?.profiles?.display_name ?? null,
       fallbackSource: clip
         ? (recordedByAssignedUser ? 'performer' : 'cover')
-        : 'text',
-      ttsUrl: null,
+        : level1Asset?.status === 'ready'
+          ? 'tts'
+          : 'text',
+      ttsUrl: level1Asset?.status === 'ready'
+        ? (level1SignedUrls.get(`${scene.id}:${line.sequenceIndex}`) ?? null)
+        : null,
     };
   });
 
@@ -150,7 +162,7 @@ export async function buildAuditionTakePlaybackData(takeId: string): Promise<Aud
       totalLines: items.length,
       rehearsableLines: items.filter((item) => !item.isSystem).length,
       recordedLines: items.filter((item) => item.hasRecording).length,
-      ttsLines: 0,
+      ttsLines: items.filter((item) => item.fallbackSource === 'tts').length,
       systemLines: items.filter((item) => item.isSystem).length,
     },
   };

@@ -47,6 +47,7 @@ export type AuditionScriptRelationshipScenarioSource = 'assignment_admin_access'
 export type AuditionTakeStatus = 'setup' | 'recording' | 'completed';
 export type AuditionTakeAssignmentType = 'human' | 'fallback_audio';
 export type AuditionReadinessLevel = 'not_started' | 'level_1_ready' | 'level_2_ready' | 'level_3_ready';
+export type AuditionLevel1AudioStatus = 'pending' | 'ready' | 'failed';
 
 export interface AuditionScript {
   id: string;
@@ -197,6 +198,27 @@ export interface AuditionTakeClip {
   duration_seconds: number | null;
   byte_length: number | null;
   created_at: string;
+}
+
+export interface AuditionLevel1AudioAsset {
+  id: string;
+  audition_script_id: string;
+  audition_scene_id: string;
+  sequence_index: number;
+  role_name: string | null;
+  line_text: string;
+  voice_persona_id: string | null;
+  voice_persona_label: string | null;
+  status: AuditionLevel1AudioStatus;
+  storage_key: string | null;
+  content_type: string | null;
+  byte_length: number | null;
+  request_payload: Record<string, unknown>;
+  response_payload: Record<string, unknown>;
+  error_message: string | null;
+  generated_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface AIProfile {
