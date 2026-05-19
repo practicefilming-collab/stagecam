@@ -61,8 +61,13 @@ export async function GET(
       onConflict: 'room_session_id,user_id',
     });
 
+  const refreshedBundle = await getAuditionRoomBundle(roomCode);
+  if (!refreshedBundle) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+
   return NextResponse.json({
-    ...bundle,
+    ...refreshedBundle,
     viewer_user_id: viewer.userId,
     viewer_role: roleType,
     relationship_label: access.canAccess

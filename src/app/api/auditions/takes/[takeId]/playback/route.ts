@@ -11,7 +11,7 @@ export async function GET(
   const viewer = await getAuditionViewerContext();
   if (!viewer) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const playback = await buildAuditionTakePlaybackData(takeId);
+  const playback = await buildAuditionTakePlaybackData(takeId, viewer.userId);
   if (!playback) {
     return NextResponse.json({ error: 'Take not found' }, { status: 404 });
   }

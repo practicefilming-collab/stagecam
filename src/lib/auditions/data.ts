@@ -45,6 +45,8 @@ export interface AuditionTakeSummary extends AuditionTake {
 export interface AuditionTakeDetail extends AuditionTakeSummary {
   clips: Array<AuditionTakeClip & { signed_url?: string | null }>;
   participants: Array<AuditionRoomParticipant & { profiles?: { display_name: string } | null }>;
+  activeParticipants: Array<AuditionRoomParticipant & { profiles?: { display_name: string } | null }>;
+  departedParticipants: Array<AuditionRoomParticipant & { profiles?: { display_name: string } | null }>;
   participantProgress: AuditionParticipantRehearsalProgress[];
 }
 
@@ -257,6 +259,8 @@ export async function getAuditionTakeDetail(takeId: string): Promise<AuditionTak
   ]);
 
   const participantRows = (participants ?? []) as Array<AuditionRoomParticipant & { profiles?: { display_name: string } | null }>;
+  const activeParticipants = participantRows.filter((participant) => !participant.left_at);
+  const departedParticipants = participantRows.filter((participant) => Boolean(participant.left_at));
   const clipRows = (clips ?? []) as AuditionTakeClip[];
   const assignmentRows = (assignments ?? []) as AuditionTakeRoleAssignment[];
 
@@ -267,9 +271,11 @@ export async function getAuditionTakeDetail(takeId: string): Promise<AuditionTak
     participantIds: [...new Set(clipRows.map((clip) => clip.actor_user_id as string))],
     clips: clipRows,
     participants: participantRows,
+    activeParticipants,
+    departedParticipants,
     participantProgress: buildParticipantRehearsalProgress({
       sceneText: scene?.scene_text ?? '',
-      participants: participantRows,
+      participants: activeParticipants,
       assignments: assignmentRows,
       clips: clipRows,
     }),

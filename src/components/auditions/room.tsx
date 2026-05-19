@@ -1,7 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { AuditionRoomVoicePanel } from '@/components/auditions/room-voice-panel';
+import { useAuditionRoomLeave } from '@/hooks/use-audition-room-leave';
+import { useAuditionRoomSession } from '@/hooks/use-audition-room-session';
 import {
   summarizeSceneReadiness,
   type AuditionDraftAssignment,
@@ -11,6 +14,7 @@ import type {
   AuditionRole,
   AuditionRoomParticipant,
   AuditionRoomSession,
+  AuditionRoomVoicePresence,
   AuditionScene,
   AuditionScript,
   AuditionTake,
@@ -24,6 +28,8 @@ interface RoomBundle {
   scenes: Array<AuditionScene & { audition_roles?: AuditionRole[] }>;
   targetRole: AuditionTargetRole | null;
   participants: Array<AuditionRoomParticipant & { profiles?: { display_name: string } | null }>;
+  activeParticipants: Array<AuditionRoomParticipant & { profiles?: { display_name: string } | null }>;
+  departedParticipants: Array<AuditionRoomParticipant & { profiles?: { display_name: string } | null }>;
   participantProgress: AuditionParticipantRehearsalProgress[];
   activeTake: AuditionTake | null;
   activeTakeAssignments: AuditionTakeRoleAssignment[];
@@ -54,6 +60,32 @@ function progressStatusLabel(status: AuditionParticipantRehearsalProgress['statu
   }
 }
 
+function progressSummary(participant: AuditionParticipantRehearsalProgress) {
+  if (participant.assignedLineCount === 0) return 'Observer / fallback only';
+  if (participant.remainingLineCount > 0) {
+    return `${participant.uploadedLineCount}/${participant.assignedLineCount} uploaded • ${participant.remainingLineCount} remaining`;
+  }
+  return `${participant.uploadedLineCount}/${participant.assignedLineCount} uploaded`;
+}
+
+function mergeVoicePresence(
+  participants: RoomBundle['activeParticipants'],
+  voicePresence: AuditionRoomVoicePresence[],
+) {
+  const voiceByUser = new Map(voicePresence.map((presence) => [presence.userId, presence]));
+  return participants.map((participant) => (
+    voiceByUser.get(participant.user_id) ?? {
+      userId: participant.user_id,
+      displayName: participant.profiles?.display_name ?? null,
+      isConnected: false,
+      isMuted: false,
+      isSpeaking: false,
+      audioLevel: 0,
+      lastSeenAt: null,
+    }
+  ));
+}
+
 export function AuditionRoomView({
   roomCode,
   initialBundle,
@@ -61,6 +93,7 @@ export function AuditionRoomView({
   roomCode: string;
   initialBundle: RoomBundle;
 }) {
+  const router = useRouter();
   const [bundle, setBundle] = useState(initialBundle);
   const [draftAssignments, setDraftAssignments] = useState<AuditionDraftAssignment[]>(
     (initialBundle.room.draft_assignments as AuditionDraftAssignment[] | null) ?? [],
@@ -70,10 +103,53 @@ export function AuditionRoomView({
   const [savingCast, setSavingCast] = useState(false);
   const [startingTake, setStartingTake] = useState(false);
   const [endingRehearsal, setEndingRehearsal] = useState(false);
+  const { leaveRoom, markInternalTransition } = useAuditionRoomLeave(roomCode);
+
+  const loadBundle = useCallback(async () => {
+    const res = await fetch(`/api/audition-rooms/${roomCode}`);
+    if (!res.ok) return;
+    const payload = await res.json();
+    setBundle(payload);
+    setDraftAssignments((payload.room.draft_assignments as AuditionDraftAssignment[] | null) ?? []);
+  }, [roomCode]);
+
+  const viewerDisplayName = useMemo(
+    () => bundle.participants.find((participant) => participant.user_id === bundle.viewer_user_id)?.profiles?.display_name ?? null,
+    [bundle.participants, bundle.viewer_user_id],
+  );
+  const {
+    broadcastRoomEvent,
+    micError,
+    micMuted,
+    micReady,
+    requestMicrophone,
+    toggleMute,
+    voicePresence,
+  } = useAuditionRoomSession({
+    roomCode,
+    userId: bundle.viewer_user_id,
+    displayName: viewerDisplayName,
+    autoRequestMic: true,
+    onRoomEvent: () => {
+      void loadBundle();
+    },
+  });
 
   const activeScene = useMemo(
     () => bundle.scenes.find((scene) => scene.id === bundle.room.active_scene_id) ?? bundle.scenes[0] ?? null,
     [bundle.room.active_scene_id, bundle.scenes],
+  );
+  const activeParticipants = useMemo(
+    () => bundle.activeParticipants ?? bundle.participants.filter((participant) => !participant.left_at),
+    [bundle.activeParticipants, bundle.participants],
+  );
+  const departedParticipants = useMemo(
+    () => bundle.departedParticipants ?? bundle.participants.filter((participant) => Boolean(participant.left_at)),
+    [bundle.departedParticipants, bundle.participants],
+  );
+  const participantVoicePresence = useMemo(
+    () => mergeVoicePresence(activeParticipants, voicePresence),
+    [activeParticipants, voicePresence],
   );
 
   const sceneRoles = useMemo(
@@ -87,32 +163,21 @@ export function AuditionRoomView({
       : null,
     [activeScene, sceneRoles],
   );
-
-  useEffect(() => {
-    const load = async () => {
-      const res = await fetch(`/api/audition-rooms/${roomCode}`);
-      if (!res.ok) return;
-      const payload = await res.json();
-      setBundle(payload);
-      setDraftAssignments((payload.room.draft_assignments as AuditionDraftAssignment[] | null) ?? []);
-    };
-
-    void load();
-    const interval = setInterval(() => void load(), 6000);
-    return () => clearInterval(interval);
-  }, [roomCode]);
-
-  useEffect(() => {
-    if (!activeScene) return;
-    setDraftAssignments((current) => {
-      const roleMap = new Map(current.map((assignment) => [assignment.role_name, assignment]));
-      return sceneRoles.map((roleName) => roleMap.get(roleName) ?? {
-        role_name: roleName,
-        user_id: null,
-        assignment_type: 'fallback_audio' as const,
-      });
+  const visibleDraftAssignments = useMemo(() => {
+    const roleMap = new Map(draftAssignments.map((assignment) => [assignment.role_name, assignment]));
+    return sceneRoles.map((roleName) => roleMap.get(roleName) ?? {
+      role_name: roleName,
+      user_id: null,
+      assignment_type: 'fallback_audio' as const,
     });
-  }, [activeScene, sceneRoles]);
+  }, [draftAssignments, sceneRoles]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadBundle();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadBundle]);
 
   const updateRoom = async (updates: Record<string, unknown>) => {
     setError('');
@@ -149,11 +214,12 @@ export function AuditionRoomView({
       setSavingCast(false);
       return;
     }
+    await broadcastRoomEvent({ type: 'cast_updated' });
     setSavingCast(false);
   };
 
   const toggleRoleClaim = async (roleName: string) => {
-    const nextAssignments: AuditionDraftAssignment[] = draftAssignments.map((assignment) =>
+    const nextAssignments: AuditionDraftAssignment[] = visibleDraftAssignments.map((assignment) =>
       assignment.role_name === roleName
         ? {
             ...assignment,
@@ -166,7 +232,7 @@ export function AuditionRoomView({
   };
 
   const setRoleToFallback = async (roleName: string) => {
-    const nextAssignments: AuditionDraftAssignment[] = draftAssignments.map((assignment) =>
+    const nextAssignments: AuditionDraftAssignment[] = visibleDraftAssignments.map((assignment) =>
       assignment.role_name === roleName
         ? { ...assignment, assignment_type: 'fallback_audio' as const, user_id: null }
         : assignment,
@@ -180,7 +246,7 @@ export function AuditionRoomView({
     const res = await fetch(`/api/audition-rooms/${roomCode}/takes`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ assignments: draftAssignments }),
+      body: JSON.stringify({ assignments: visibleDraftAssignments }),
     });
     const payload = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -188,8 +254,10 @@ export function AuditionRoomView({
       setStartingTake(false);
       return;
     }
+    await broadcastRoomEvent({ type: 'take_started', takeId: payload.take?.id ?? null });
     setStartingTake(false);
-    window.location.href = `/rooms/auditions/${roomCode}/takes/${payload.take.id}`;
+    markInternalTransition();
+    router.push(`/rooms/auditions/${roomCode}/takes/${payload.take.id}`);
   };
 
   const myAssignments = bundle.activeTakeAssignments.filter(
@@ -214,8 +282,10 @@ export function AuditionRoomView({
       return;
     }
     await updateRoom({ clear_active_take: true });
+    await broadcastRoomEvent({ type: 'take_ended', takeId: bundle.activeTake.id });
     setEndingRehearsal(false);
-    window.location.href = `/pro/auditions/${bundle.script.id}/scenes/${bundle.activeTake.audition_scene_id}/takes/${bundle.activeTake.id}`;
+    markInternalTransition();
+    router.push(`/pro/auditions/${bundle.script.id}/scenes/${bundle.activeTake.audition_scene_id}/takes/${bundle.activeTake.id}`);
   };
 
   return (
@@ -240,16 +310,32 @@ export function AuditionRoomView({
           >
             {copied ? 'Invite link copied' : 'Copy invite link'}
           </button>
+          <button
+            onClick={async () => {
+              await leaveRoom();
+              await broadcastRoomEvent({ type: 'participant_left', reason: 'manual_leave' });
+              router.push(`/pro/auditions/${bundle.script.id}`);
+            }}
+            className="rounded-xl border border-border px-4 py-3 text-sm text-muted hover:text-foreground"
+          >
+            Leave room
+          </button>
           {bundle.can_control_room && (
             <>
               <button
-                onClick={() => updateRoom({ status: 'active' })}
+                onClick={async () => {
+                  const ok = await updateRoom({ status: 'active' });
+                  if (ok) await broadcastRoomEvent({ type: 'room_status', reason: 'marked_active' });
+                }}
                 className="rounded-xl border border-gold/30 px-4 py-3 text-sm text-gold hover:bg-gold/10"
               >
                 Mark Active
               </button>
               <button
-                onClick={() => updateRoom({ status: 'ended' })}
+                onClick={async () => {
+                  const ok = await updateRoom({ status: 'ended' });
+                  if (ok) await broadcastRoomEvent({ type: 'room_status', reason: 'ended' });
+                }}
                 className="rounded-xl border border-red-500/30 px-4 py-3 text-sm text-red-300 hover:bg-red-500/10"
               >
                 End Room
@@ -269,7 +355,11 @@ export function AuditionRoomView({
               {bundle.scenes.map((scene) => (
                 <button
                   key={scene.id}
-                  onClick={() => bundle.can_control_room && updateRoom({ active_scene_id: scene.id, clear_active_take: true })}
+                  onClick={async () => {
+                    if (!bundle.can_control_room) return;
+                    const ok = await updateRoom({ active_scene_id: scene.id, clear_active_take: true });
+                    if (ok) await broadcastRoomEvent({ type: 'scene_changed' });
+                  }}
                   className={`w-full rounded-2xl border px-4 py-3 text-left transition-colors ${
                     scene.id === activeScene?.id
                       ? 'border-gold/40 bg-gold/10'
@@ -283,22 +373,65 @@ export function AuditionRoomView({
             </div>
           </div>
 
+          <AuditionRoomVoicePanel
+            voicePresence={participantVoicePresence}
+            micReady={micReady}
+            micMuted={micMuted}
+            micError={micError}
+            onRequestMic={() => {
+              void requestMicrophone();
+            }}
+            onToggleMute={() => {
+              void toggleMute();
+            }}
+          />
+
           <div className="rounded-3xl border border-border bg-surface p-6">
             <h2 className="text-lg font-semibold">Participants</h2>
-            <div className="mt-4 space-y-3">
-              {bundle.participants.map((participant) => (
-                <div key={participant.id} className="rounded-2xl border border-border bg-background/40 px-4 py-3 text-sm">
-                  <div className="font-medium">{participant.profiles?.display_name ?? participant.user_id}</div>
-                  <div className="mt-1 text-xs uppercase tracking-wide text-muted">
-                    {participant.role_type.replace(/_/g, ' ')}
-                  </div>
-                  <div className="mt-1 text-[11px] text-muted">
-                    {participant.left_at
-                      ? `Left ${new Date(participant.left_at).toLocaleString()}`
-                      : `Joined ${new Date(participant.joined_at).toLocaleString()}`}
-                  </div>
+            <div className="mt-4 space-y-5">
+              <div>
+                <div className="text-xs uppercase tracking-wide text-gold/80">In room now</div>
+                <div className="mt-3 space-y-3">
+                  {activeParticipants.map((participant) => (
+                    <div key={participant.id} className="rounded-2xl border border-border bg-background/40 px-4 py-3 text-sm">
+                      <div className="font-medium">{participant.profiles?.display_name ?? participant.user_id}</div>
+                      <div className="mt-1 text-xs uppercase tracking-wide text-muted">
+                        {participant.role_type.replace(/_/g, ' ')}
+                      </div>
+                      <div className="mt-1 text-[11px] text-muted">
+                        Joined {new Date(participant.joined_at).toLocaleString()}
+                      </div>
+                    </div>
+                  ))}
+                  {activeParticipants.length === 0 && (
+                    <div className="rounded-2xl border border-border bg-background/40 px-4 py-3 text-sm text-muted">
+                      No active participants yet.
+                    </div>
+                  )}
                 </div>
-              ))}
+              </div>
+
+              <div>
+                <div className="text-xs uppercase tracking-wide text-muted">Left room</div>
+                <div className="mt-3 space-y-3">
+                  {departedParticipants.map((participant) => (
+                    <div key={participant.id} className="rounded-2xl border border-dashed border-border bg-background/20 px-4 py-3 text-sm opacity-70">
+                      <div className="font-medium">{participant.profiles?.display_name ?? participant.user_id}</div>
+                      <div className="mt-1 text-xs uppercase tracking-wide text-muted">
+                        {participant.role_type.replace(/_/g, ' ')}
+                      </div>
+                      <div className="mt-1 text-[11px] text-muted">
+                        Left {participant.left_at ? new Date(participant.left_at).toLocaleString() : 'Unknown'}
+                      </div>
+                    </div>
+                  ))}
+                  {departedParticipants.length === 0 && (
+                    <div className="rounded-2xl border border-border bg-background/40 px-4 py-3 text-sm text-muted">
+                      Nobody has left this room yet.
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -354,13 +487,13 @@ export function AuditionRoomView({
             </div>
 
             <div className="mt-4 space-y-3">
-              {draftAssignments.map((assignment) => (
+              {visibleDraftAssignments.map((assignment) => (
                 <div key={assignment.role_name} className="rounded-2xl border border-border bg-background/40 px-4 py-4">
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div>
                       <div className="font-medium">{assignment.role_name}</div>
                       <div className="mt-1 text-xs uppercase tracking-wide text-muted">
-                        {assignmentLabel(assignment, bundle.participants)}
+                        {assignmentLabel(assignment, activeParticipants)}
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -386,7 +519,7 @@ export function AuditionRoomView({
 
             <button
               onClick={startTake}
-              disabled={!readiness?.level1Ready || startingTake || draftAssignments.length === 0}
+              disabled={!readiness?.level1Ready || startingTake || visibleDraftAssignments.length === 0}
               className="mt-6 rounded-xl bg-gold px-5 py-3 text-sm font-semibold text-black hover:bg-gold-dim disabled:opacity-50"
             >
               {startingTake ? 'Starting rehearsal...' : 'Start new rehearsal'}
@@ -419,18 +552,24 @@ export function AuditionRoomView({
 
               {bundle.activeTake && (
                 <div className="mt-5 flex flex-wrap gap-3">
-                  <Link
-                    href={`/rooms/auditions/${roomCode}/takes/${bundle.activeTake.id}`}
+                  <button
+                    onClick={() => {
+                      markInternalTransition();
+                      router.push(`/rooms/auditions/${roomCode}/takes/${bundle.activeTake!.id}`);
+                    }}
                     className="rounded-xl border border-gold/30 px-4 py-3 text-sm text-gold hover:bg-gold/10"
                   >
                     Record my lines
-                  </Link>
-                  <Link
-                    href={`/pro/auditions/${bundle.script.id}/scenes/${bundle.activeTake.audition_scene_id}`}
+                  </button>
+                  <button
+                    onClick={() => {
+                      markInternalTransition();
+                      router.push(`/pro/auditions/${bundle.script.id}/scenes/${bundle.activeTake!.audition_scene_id}/takes/${bundle.activeTake!.id}`);
+                    }}
                     className="rounded-xl border border-border px-4 py-3 text-sm text-muted hover:text-foreground"
                   >
                     Review this rehearsal
-                  </Link>
+                  </button>
                   {bundle.can_control_room && (
                     <button
                       onClick={endRehearsal}
@@ -461,8 +600,7 @@ export function AuditionRoomView({
                         </div>
                       </div>
                       <div className="text-right text-xs text-muted">
-                        <div>{participant.uploadedLineCount}/{participant.assignedLineCount} uploaded</div>
-                        <div className="mt-1">{participant.remainingLineCount} remaining</div>
+                        <div>{progressSummary(participant)}</div>
                       </div>
                     </div>
                     {participant.assignedRoleNames.length > 0 && (

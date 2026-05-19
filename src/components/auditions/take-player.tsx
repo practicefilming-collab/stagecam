@@ -1,7 +1,10 @@
 'use client';
 
-import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { AuditionRoomVoicePanel } from '@/components/auditions/room-voice-panel';
+import { useAuditionRoomLeave } from '@/hooks/use-audition-room-leave';
+import { useAuditionRoomSession } from '@/hooks/use-audition-room-session';
 import type { AuditionTakePlaybackData, AuditionTakePlaybackItem } from '@/lib/auditions/build-take-playback';
 
 interface ReplayExportStatusResponse {
@@ -10,6 +13,12 @@ interface ReplayExportStatusResponse {
   progressPct: number;
   errorMessage: string | null;
   downloadUrl: string | null;
+}
+
+function participantSummary(uploaded: number, assigned: number, remaining: number) {
+  if (assigned === 0) return 'Observer / fallback only';
+  if (remaining > 0) return `${uploaded}/${assigned} uploaded • ${remaining} still using fallback`;
+  return `${uploaded}/${assigned} uploaded`;
 }
 
 export function AuditionTakePlayer({
@@ -21,6 +30,7 @@ export function AuditionTakePlayer({
   sceneId: string;
   takeId: string;
 }) {
+  const router = useRouter();
   const [data, setData] = useState<AuditionTakePlaybackData | null>(null);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -33,23 +43,44 @@ export function AuditionTakePlayer({
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  useEffect(() => {
-    async function load() {
-      const res = await fetch(`/api/auditions/takes/${takeId}/playback`);
-      if (!res.ok) {
-        const payload = await res.json().catch(() => ({}));
-        setError(payload.error || 'Failed to load rehearsal replay');
-        setLoading(false);
-        return;
-      }
-
-      const payload = await res.json();
-      setData(payload);
+  const load = useCallback(async () => {
+    const res = await fetch(`/api/auditions/takes/${takeId}/playback`);
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      setError(payload.error || 'Failed to load rehearsal replay');
       setLoading(false);
+      return;
     }
 
-    void load();
+    const payload = await res.json();
+    setData(payload);
+    setLoading(false);
   }, [takeId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const { leaveRoom, markInternalTransition } = useAuditionRoomLeave(data?.roomCode ?? null);
+  const {
+    micError,
+    micMuted,
+    micReady,
+    requestMicrophone,
+    toggleMute,
+    voicePresence,
+  } = useAuditionRoomSession({
+    roomCode: data?.roomCode ?? null,
+    userId: data?.viewerUserId ?? `replay-${takeId}`,
+    displayName: null,
+    enabled: Boolean(data?.roomCode),
+    autoRequestMic: true,
+    onRoomEvent: (payload) => {
+      if (payload.type === 'clip_uploaded' || payload.type === 'participant_state' || payload.type === 'take_ended') {
+        void load();
+      }
+    },
+  });
 
   const items = data?.items ?? [];
   const current = items[currentIdx] ?? null;
@@ -220,6 +251,9 @@ export function AuditionTakePlayer({
   const takeLabel = data.take.rehearsalNumber
     ? `Rehearsal #${data.take.rehearsalNumber}`
     : data.take.title ?? `Rehearsal ${data.take.id.slice(0, 8)}`;
+  const resumeCopy = data.viewerResume.remainingAssignedLines === 1
+    ? '1 assigned line still needs your recording.'
+    : `${data.viewerResume.remainingAssignedLines} assigned lines still need your recording.`;
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-8">
@@ -233,6 +267,17 @@ export function AuditionTakePlayer({
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {data.viewerResume.canResumeRecording && data.viewerResume.resumeUrl && (
+            <button
+              onClick={() => {
+                markInternalTransition();
+                router.push(data.viewerResume.resumeUrl!);
+              }}
+              className="rounded-xl bg-gold px-4 py-2 text-sm font-semibold text-black hover:bg-gold-dim"
+            >
+              Continue recording
+            </button>
+          )}
           <button
             onClick={() => void handleDownload()}
             disabled={downloading}
@@ -242,14 +287,54 @@ export function AuditionTakePlayer({
               ? `Downloading${downloadProgress !== null ? ` ${Math.max(0, Math.min(99, downloadProgress))}%` : '...'}`
               : 'Download replay'}
           </button>
-          <Link
-            href={`/pro/auditions/${auditionId}/scenes/${sceneId}`}
+          <button
+            onClick={async () => {
+              await leaveRoom();
+              router.push(`/pro/auditions/${auditionId}/scenes/${sceneId}`);
+            }}
             className="rounded-xl border border-border px-4 py-2 text-sm text-muted hover:text-foreground"
           >
             Back to scene
-          </Link>
+          </button>
         </div>
       </div>
+
+      {data.viewerResume.canResumeRecording && (
+        <div className="rounded-2xl border border-gold/30 bg-gold/10 px-4 py-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-sm font-medium text-gold">This rehearsal is still in progress.</p>
+              <p className="mt-1 text-sm text-muted">{resumeCopy}</p>
+            </div>
+            {data.viewerResume.resumeUrl && (
+              <button
+                onClick={() => {
+                  markInternalTransition();
+                  router.push(data.viewerResume.resumeUrl!);
+                }}
+                className="rounded-xl border border-gold/30 px-4 py-2 text-sm text-gold hover:bg-gold/10"
+              >
+                Open recorder
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {data.roomCode && (
+        <AuditionRoomVoicePanel
+          voicePresence={voicePresence}
+          micReady={micReady}
+          micMuted={micMuted}
+          micError={micError}
+          onRequestMic={() => {
+            void requestMicrophone();
+          }}
+          onToggleMute={() => {
+            void toggleMute();
+          }}
+        />
+      )}
 
       <div className="overflow-hidden rounded-2xl border border-border bg-surface">
         <div className="border-b border-border px-4 py-3">
@@ -283,8 +368,11 @@ export function AuditionTakePlayer({
                     <div className="text-xs uppercase tracking-wide text-muted">{participant.status.replace(/_/g, ' ')}</div>
                   </div>
                   <div className="mt-2 text-xs text-muted">
-                    {participant.uploadedLineCount}/{participant.assignedLineCount} uploaded
-                    {participant.remainingLineCount > 0 ? ` • ${participant.remainingLineCount} still using fallback` : ''}
+                    {participantSummary(
+                      participant.uploadedLineCount,
+                      participant.assignedLineCount,
+                      participant.remainingLineCount,
+                    )}
                   </div>
                 </div>
               ))}

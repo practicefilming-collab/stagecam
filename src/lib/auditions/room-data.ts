@@ -1,7 +1,16 @@
 import { createAdminClient } from '@/lib/supabase/admin';
-import type { AuditionScript, AuditionTake, AuditionTakeClip, AuditionTakeRoleAssignment, Script } from '@/lib/types';
+import type {
+  AuditionRoomParticipant,
+  AuditionScript,
+  AuditionTake,
+  AuditionTakeClip,
+  AuditionTakeRoleAssignment,
+  Script,
+} from '@/lib/types';
 import { loadAuditionSharedAudioCoverage, mergeLevel1AudioMetadata } from './level1-audio';
 import { buildParticipantRehearsalProgress } from './rehearsal-progress';
+
+type ParticipantRow = AuditionRoomParticipant & { profiles?: { display_name: string } | null };
 
 export async function getAuditionRoomBundle(roomCode: string) {
   const admin = createAdminClient();
@@ -41,18 +50,24 @@ export async function getAuditionRoomBundle(roomCode: string) {
 
   const activeScene = sceneRows.find((scene) => scene.id === room.active_scene_id) ?? sceneRows[0] ?? null;
 
+  const participantRows = (participants ?? []) as ParticipantRow[];
+  const activeParticipants = participantRows.filter((participant) => !participant.left_at);
+  const departedParticipants = participantRows.filter((participant) => Boolean(participant.left_at));
+
   return {
     room,
     script,
     scenes: mergeLevel1AudioMetadata(sceneRows, level1Coverage),
     targetRole: (targetRoles ?? [])[0] ?? null,
-    participants: participants ?? [],
+    participants: participantRows,
+    activeParticipants,
+    departedParticipants,
     activeTake: (activeTake as AuditionTake | null) ?? null,
     activeTakeAssignments: (activeTakeAssignments ?? []) as AuditionTakeRoleAssignment[],
     participantProgress: activeScene
       ? buildParticipantRehearsalProgress({
           sceneText: activeScene.scene_text,
-          participants: (participants ?? []) as Array<Parameters<typeof buildParticipantRehearsalProgress>[0]['participants'][number]>,
+          participants: activeParticipants as Array<Parameters<typeof buildParticipantRehearsalProgress>[0]['participants'][number]>,
           assignments: (activeTakeAssignments ?? []) as AuditionTakeRoleAssignment[],
           clips: (activeTakeClips ?? []) as AuditionTakeClip[],
         })

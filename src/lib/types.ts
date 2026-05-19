@@ -152,6 +152,16 @@ export interface AuditionRoomParticipant {
   left_at: string | null;
 }
 
+export interface AuditionRoomVoicePresence {
+  userId: string;
+  displayName: string | null;
+  isConnected: boolean;
+  isMuted: boolean;
+  isSpeaking: boolean;
+  audioLevel: number;
+  lastSeenAt: string | null;
+}
+
 export interface AuditionScriptRelationship {
   id: string;
   audition_script_id: string;

@@ -28,8 +28,16 @@ export interface AuditionTakePlaybackItem {
 }
 
 export interface AuditionTakePlaybackData {
+  roomCode: string | null;
+  viewerUserId: string | null;
   take: Pick<AuditionTake, 'id' | 'title' | 'status' | 'created_at' | 'completed_at'> & {
     rehearsalNumber: number | null;
+  };
+  viewerResume: {
+    canResumeRecording: boolean;
+    remainingAssignedLines: number;
+    resumeUrl: string | null;
+    viewerAssignedRoleNames: string[];
   };
   scene: {
     id: string;
@@ -52,7 +60,10 @@ export interface AuditionTakePlaybackData {
   participantProgress: AuditionParticipantRehearsalProgress[];
 }
 
-export async function buildAuditionTakePlaybackData(takeId: string): Promise<AuditionTakePlaybackData | null> {
+export async function buildAuditionTakePlaybackData(
+  takeId: string,
+  viewerUserId?: string,
+): Promise<AuditionTakePlaybackData | null> {
   const admin = createAdminClient();
   const { data: take } = await admin
     .from('audition_takes')
@@ -62,7 +73,7 @@ export async function buildAuditionTakePlaybackData(takeId: string): Promise<Aud
 
   if (!take) return null;
 
-  const [{ data: scene }, { data: script }, { data: assignments }, { data: clips }, { data: linkedScript }, { data: participants }, { data: sceneTakes }] = await Promise.all([
+  const [{ data: scene }, { data: script }, { data: assignments }, { data: clips }, { data: linkedScript }, { data: participants }, { data: sceneTakes }, { data: roomSession }] = await Promise.all([
     admin
       .from('audition_scenes')
       .select('id, label, order_index, source_page_ref, scene_text')
@@ -100,6 +111,13 @@ export async function buildAuditionTakePlaybackData(takeId: string): Promise<Aud
       .select('id')
       .eq('audition_scene_id', take.audition_scene_id)
       .order('created_at', { ascending: true }),
+    take.room_session_id
+      ? admin
+          .from('audition_room_sessions')
+          .select('room_code')
+          .eq('id', take.room_session_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null as { room_code: string } | null, error: null }),
   ]);
 
   if (!scene || !script) return null;
@@ -166,8 +184,33 @@ export async function buildAuditionTakePlaybackData(takeId: string): Promise<Aud
   });
 
   const rehearsalNumber = ((sceneTakes ?? []) as Array<{ id: string }>).findIndex((row) => row.id === takeId) + 1;
+  const participantProgress = buildParticipantRehearsalProgress({
+    sceneText: scene.scene_text,
+    participants: ((participants ?? []) as Array<Parameters<typeof buildParticipantRehearsalProgress>[0]['participants'][number]>)
+      .filter((participant) => !participant.left_at),
+    assignments: (assignments ?? []) as AuditionTakeRoleAssignment[],
+    clips: (clips ?? []) as AuditionTakeClip[],
+  });
+  const viewerProgress = viewerUserId
+    ? participantProgress.find((participant) => participant.userId === viewerUserId) ?? null
+    : null;
+  const viewerAssignedRoleNames = ((assignments ?? []) as AuditionTakeRoleAssignment[])
+    .filter((assignment) => assignment.assignment_type === 'human' && assignment.user_id === viewerUserId)
+    .map((assignment) => assignment.role_name);
+  const remainingAssignedLines = viewerProgress?.remainingLineCount ?? 0;
+  const roomCode = roomSession?.room_code ?? null;
+  const canResumeRecording = Boolean(
+    viewerUserId &&
+    take.status === 'recording' &&
+    take.room_session_id &&
+    roomCode &&
+    viewerAssignedRoleNames.length > 0 &&
+    remainingAssignedLines > 0,
+  );
 
   return {
+    roomCode,
+    viewerUserId: viewerUserId ?? null,
     take: {
       id: take.id,
       title: take.title,
@@ -175,6 +218,12 @@ export async function buildAuditionTakePlaybackData(takeId: string): Promise<Aud
       created_at: take.created_at,
       completed_at: take.completed_at,
       rehearsalNumber: rehearsalNumber > 0 ? rehearsalNumber : null,
+    },
+    viewerResume: {
+      canResumeRecording,
+      remainingAssignedLines,
+      resumeUrl: canResumeRecording ? `/rooms/auditions/${roomCode}/takes/${take.id}` : null,
+      viewerAssignedRoleNames,
     },
     scene: {
       id: scene.id,
@@ -194,11 +243,6 @@ export async function buildAuditionTakePlaybackData(takeId: string): Promise<Aud
       ttsLines: items.filter((item) => item.fallbackSource === 'tts').length,
       systemLines: items.filter((item) => item.isSystem).length,
     },
-    participantProgress: buildParticipantRehearsalProgress({
-      sceneText: scene.scene_text,
-      participants: (participants ?? []) as Array<Parameters<typeof buildParticipantRehearsalProgress>[0]['participants'][number]>,
-      assignments: (assignments ?? []) as AuditionTakeRoleAssignment[],
-      clips: (clips ?? []) as AuditionTakeClip[],
-    }),
+    participantProgress,
   };
 }

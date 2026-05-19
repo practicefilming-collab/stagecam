@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { AuditionRoomVoicePanel } from '@/components/auditions/room-voice-panel';
+import { useAuditionRoomLeave } from '@/hooks/use-audition-room-leave';
+import { useAuditionRoomSession } from '@/hooks/use-audition-room-session';
 import { useMediaDevices } from '@/hooks/use-media-devices';
 import { useRecording } from '@/hooks/use-recording';
 import type { AuditionTakePlaybackItem } from '@/lib/auditions/build-take-playback';
@@ -27,32 +29,67 @@ export function AuditionTakeRecorder({
   canControlTake: boolean;
 }) {
   const router = useRouter();
+  const { leaveRoom, markInternalTransition } = useAuditionRoomLeave(roomCode);
   const { stream, error: mediaError, hasPermission, videoRef, requestPermission } = useMediaDevices();
   const { state: recState, blob, previewUrl, duration, startRecording, stopRecording, reset } = useRecording();
   const playbackRef = useRef<HTMLVideoElement>(null);
   const cueAudioRef = useRef<HTMLAudioElement>(null);
-  const [currentLineIdx, setCurrentLineIdx] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [playbackItemsBySequence, setPlaybackItemsBySequence] = useState<Map<number, AuditionTakePlaybackItem>>(new Map());
   const [playingCueSequence, setPlayingCueSequence] = useState<number | null>(null);
-  const [uploadedSequenceIndexes, setUploadedSequenceIndexes] = useState<Set<number>>(
-    new Set(
+  const initialUploadedSequenceIndexes = useMemo(
+    () => new Set(
       take.clips
         .filter((clip: AuditionTakeClip) => clip.actor_user_id === viewerUserId)
         .map((clip) => clip.sequence_index),
     ),
+    [take.clips, viewerUserId],
   );
-
   const assignedLines = useMemo(
     () => runtimeLinesForAssignments(scene.scene_text, take.assignments, viewerUserId),
     [scene.scene_text, take.assignments, viewerUserId],
   );
-
-  const firstOpenIndex = useMemo(
-    () => assignedLines.findIndex((line) => !uploadedSequenceIndexes.has(line.sequenceIndex)),
-    [assignedLines, uploadedSequenceIndexes],
+  const [uploadedSequenceIndexes, setUploadedSequenceIndexes] = useState<Set<number>>(
+    initialUploadedSequenceIndexes,
   );
+  const [currentLineIdx, setCurrentLineIdx] = useState(() => {
+    const firstOpenIndex = assignedLines.findIndex((line) => !initialUploadedSequenceIndexes.has(line.sequenceIndex));
+    return firstOpenIndex >= 0 ? firstOpenIndex : 0;
+  });
+  const viewerDisplayName = take.activeParticipants
+    .find((participant) => participant.user_id === viewerUserId)?.profiles?.display_name ?? null;
+
+  const loadPlayback = useCallback(async () => {
+    const res = await fetch(`/api/auditions/takes/${take.id}/playback`);
+    if (!res.ok) return;
+    const payload = await res.json().catch(() => null);
+    const items = Array.isArray(payload?.items) ? payload.items as AuditionTakePlaybackItem[] : [];
+    setPlaybackItemsBySequence(new Map(items.map((item) => [item.lineIndex, item])));
+  }, [take.id]);
+  const {
+    broadcastRoomEvent,
+    micError,
+    micMuted,
+    micReady,
+    requestMicrophone,
+    toggleMute,
+    voicePresence,
+  } = useAuditionRoomSession({
+    roomCode,
+    userId: viewerUserId,
+    displayName: viewerDisplayName,
+    autoRequestMic: true,
+    onRoomEvent: (payload) => {
+      if (payload.type === 'clip_uploaded' || payload.type === 'participant_state') {
+        void router.refresh();
+        void loadPlayback();
+      }
+      if (payload.type === 'take_ended') {
+        void router.refresh();
+      }
+    },
+  });
 
   useEffect(() => {
     if (!hasPermission) {
@@ -61,22 +98,11 @@ export function AuditionTakeRecorder({
   }, [hasPermission, requestPermission]);
 
   useEffect(() => {
-    if (firstOpenIndex >= 0) {
-      setCurrentLineIdx(firstOpenIndex);
-    }
-  }, [firstOpenIndex]);
-
-  useEffect(() => {
-    const loadPlayback = async () => {
-      const res = await fetch(`/api/auditions/takes/${take.id}/playback`);
-      if (!res.ok) return;
-      const payload = await res.json().catch(() => null);
-      const items = Array.isArray(payload?.items) ? payload.items as AuditionTakePlaybackItem[] : [];
-      setPlaybackItemsBySequence(new Map(items.map((item) => [item.lineIndex, item])));
-    };
-
-    void loadPlayback();
-  }, [take.id]);
+    const timer = window.setTimeout(() => {
+      void loadPlayback();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadPlayback]);
 
   const currentLine = assignedLines[currentLineIdx] ?? null;
   const sceneRuntime = useMemo(() => parseAuditionSceneRuntimeLines(scene.scene_text), [scene.scene_text]);
@@ -100,12 +126,11 @@ export function AuditionTakeRecorder({
           take_id: take.id,
         }),
       }).catch(() => undefined);
+      await broadcastRoomEvent({ type: 'participant_state', takeId: take.id });
     };
 
     void syncParticipantState();
-    const interval = window.setInterval(() => void syncParticipantState(), 6000);
-    return () => window.clearInterval(interval);
-  }, [participantState, roomCode, take.id]);
+  }, [broadcastRoomEvent, participantState, roomCode, take.id]);
 
   const playCue = (sequenceIndex: number) => {
     const item = playbackItemsBySequence.get(sequenceIndex);
@@ -140,9 +165,19 @@ export function AuditionTakeRecorder({
       return;
     }
 
-    setUploadedSequenceIndexes((current) => new Set([...current, currentLine.sequenceIndex]));
+    const nextUploadedSequenceIndexes = new Set([...uploadedSequenceIndexes, currentLine.sequenceIndex]);
+    setUploadedSequenceIndexes(nextUploadedSequenceIndexes);
+    const nextOpenIndex = assignedLines.findIndex((line) => !nextUploadedSequenceIndexes.has(line.sequenceIndex));
+    if (nextOpenIndex >= 0) {
+      setCurrentLineIdx(nextOpenIndex);
+    }
     reset();
     setUploading(false);
+    await broadcastRoomEvent({
+      type: 'clip_uploaded',
+      sequenceIndex: currentLine.sequenceIndex,
+      takeId: take.id,
+    });
     router.refresh();
   };
 
@@ -155,9 +190,15 @@ export function AuditionTakeRecorder({
             Your role in this rehearsal is observer-only or handled through fallback audio. Return to the room to review the cast plan.
           </p>
           <div className="mt-4">
-            <Link href={`/rooms/auditions/${roomCode}`} className="rounded-xl border border-border px-4 py-3 text-sm text-muted hover:text-foreground">
+            <button
+              onClick={() => {
+                markInternalTransition();
+                router.push(`/rooms/auditions/${roomCode}`);
+              }}
+              className="rounded-xl border border-border px-4 py-3 text-sm text-muted hover:text-foreground"
+            >
               Back to room
-            </Link>
+            </button>
           </div>
         </div>
       </div>
@@ -180,9 +221,15 @@ export function AuditionTakeRecorder({
             My line {currentLineIdx + 1}/{assignedLines.length}
           </div>
         </div>
-        <Link href={`/rooms/auditions/${roomCode}`} className="rounded-xl border border-border px-4 py-2 text-sm text-muted hover:text-foreground">
+        <button
+          onClick={() => {
+            markInternalTransition();
+            router.push(`/rooms/auditions/${roomCode}`);
+          }}
+          className="rounded-xl border border-border px-4 py-2 text-sm text-muted hover:text-foreground"
+        >
           Back to room
-        </Link>
+        </button>
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col">
@@ -286,9 +333,24 @@ export function AuditionTakeRecorder({
                 <div className="text-xs uppercase tracking-wide text-muted">{(myProgress?.status ?? participantState).replace(/_/g, ' ')}</div>
               </div>
               <div className="mt-2 text-xs text-muted">
-                {uploadedSequenceIndexes.size}/{assignedLines.length} uploaded
+                {assignedLines.length === 0
+                  ? 'Observer / fallback only'
+                  : `${uploadedSequenceIndexes.size}/${assignedLines.length} uploaded`}
               </div>
             </section>
+
+            <AuditionRoomVoicePanel
+              voicePresence={voicePresence}
+              micReady={micReady}
+              micMuted={micMuted}
+              micError={micError}
+              onRequestMic={() => {
+                void requestMicrophone();
+              }}
+              onToggleMute={() => {
+                void toggleMute();
+              }}
+            />
 
             <section>
               <div className="text-xs uppercase tracking-wide text-muted">Recorded clips</div>
@@ -320,7 +382,9 @@ export function AuditionTakeRecorder({
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ status: 'completed' }),
                   });
-                  router.push(`/pro/auditions/${take.audition_script_id}/scenes/${scene.id}`);
+                  await broadcastRoomEvent({ type: 'take_ended', takeId: take.id });
+                  await leaveRoom();
+                  router.push(`/pro/auditions/${take.audition_script_id}/scenes/${scene.id}/takes/${take.id}`);
                 }}
                 className="rounded-xl border border-gold/40 px-4 py-3 text-sm text-gold hover:bg-gold/10"
               >
