@@ -25,6 +25,7 @@ export function AuditionSceneView({
   takes,
   viewerUserId,
   canManage,
+  canHostRoom,
 }: {
   detail: AuditionDetail;
   scene: AuditionSceneWithRoles;
@@ -32,6 +33,7 @@ export function AuditionSceneView({
   takes: AuditionTakeSummary[];
   viewerUserId: string;
   canManage: boolean;
+  canHostRoom: boolean;
 }) {
   const [label, setLabel] = useState(scene.label);
   const [sourcePageRef, setSourcePageRef] = useState(scene.source_page_ref ?? '');
@@ -39,6 +41,7 @@ export function AuditionSceneView({
   const [rolesCsv, setRolesCsv] = useState(scene.roles.map((role) => role.name).join(', '));
   const [processingMetadata, setProcessingMetadata] = useState<Record<string, unknown>>(scene.processing_metadata ?? {});
   const [saving, setSaving] = useState(false);
+  const [roomLoading, setRoomLoading] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
   const router = useRouter();
@@ -118,11 +121,30 @@ export function AuditionSceneView({
     router.refresh();
   };
 
+  const startNewRehearsal = async () => {
+    setRoomLoading(true);
+    setError('');
+
+    const res = await fetch(`/api/auditions/${detail.script.id}/rooms`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active_scene_id: scene.id, status: 'active' }),
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(payload.error || 'Could not start rehearsal');
+      setRoomLoading(false);
+      return;
+    }
+
+    router.push(`/rooms/auditions/${payload.room_code}`);
+  };
+
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-4 py-10">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-gold/80">Scene takes</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-gold/80">Scene rehearsals</p>
           <h1 className="mt-2 text-3xl font-bold text-gold">{scene.label}</h1>
           <p className="mt-2 text-sm text-muted">
             {detail.script.title} {scene.source_page_ref ? `• ${scene.source_page_ref}` : ''}
@@ -139,30 +161,23 @@ export function AuditionSceneView({
       <section className="grid gap-8 lg:grid-cols-[0.92fr_1.08fr]">
         <div className="space-y-6">
           <div className="rounded-3xl border border-border bg-surface p-6">
-            <div className="mb-4 flex flex-wrap gap-2">
-              {scene.roles.map((role: AuditionRole) => (
-                <span
-                  key={role.id}
-                  className={`rounded-full border px-3 py-1 text-xs ${
-                    role.name === selectedRoleName
-                      ? 'border-gold/40 bg-gold/10 text-gold'
-                      : 'border-border text-muted'
-                  }`}
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">Rehearsal ledger</h2>
+                <p className="mt-1 text-sm text-muted">
+                  Each rehearsal is a full scene run. Start a new one, then open any saved rehearsal to replay the whole scene.
+                </p>
+              </div>
+              {canHostRoom && (
+                <button
+                  onClick={() => void startNewRehearsal()}
+                  disabled={roomLoading}
+                  className="rounded-xl bg-gold px-4 py-3 text-sm font-semibold text-black hover:bg-gold-dim disabled:opacity-50"
                 >
-                  {role.name}
-                </span>
-              ))}
+                  {roomLoading ? 'Starting rehearsal...' : 'Start new rehearsal'}
+                </button>
+              )}
             </div>
-            <div className="whitespace-pre-wrap rounded-2xl border border-border bg-background/40 p-5 text-sm leading-7 text-foreground">
-              {scene.scene_text}
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-border bg-surface p-6">
-            <h2 className="text-lg font-semibold">Rehearsal ledger</h2>
-            <p className="mt-1 text-sm text-muted">
-              Each rehearsal is a full scene run. Start new ones from the audition room, then open them to replay the whole scene.
-            </p>
             <div className="mt-4 space-y-3">
               {takes.map((take) => (
                 <Link
@@ -237,14 +252,43 @@ export function AuditionSceneView({
               </div>
             </div>
           )}
+
+          <div className="rounded-3xl border border-border bg-surface p-6">
+            <div className="mb-4 flex flex-wrap gap-2">
+              {scene.roles.map((role: AuditionRole) => (
+                <span
+                  key={role.id}
+                  className={`rounded-full border px-3 py-1 text-xs ${
+                    role.name === selectedRoleName
+                      ? 'border-gold/40 bg-gold/10 text-gold'
+                      : 'border-border text-muted'
+                  }`}
+                >
+                  {role.name}
+                </span>
+              ))}
+            </div>
+            <div className="whitespace-pre-wrap rounded-2xl border border-border bg-background/40 p-5 text-sm leading-7 text-foreground">
+              {scene.scene_text}
+            </div>
+          </div>
         </div>
 
         <div className="space-y-6">
-            <div className="rounded-3xl border border-border bg-surface p-6">
+          <div className="rounded-3xl border border-border bg-surface p-6">
             <h2 className="text-lg font-semibold">Rehearsal review</h2>
             <p className="mt-2 text-sm text-muted">
               Click a rehearsal in the ledger to open a dedicated replay page for the full scene, following the Toy Story review flow.
             </p>
+            {canHostRoom && (
+              <button
+                onClick={() => void startNewRehearsal()}
+                disabled={roomLoading}
+                className="mt-4 rounded-xl border border-border px-4 py-3 text-sm text-muted hover:text-foreground disabled:opacity-50"
+              >
+                {roomLoading ? 'Starting rehearsal...' : 'Start new rehearsal'}
+              </button>
+            )}
           </div>
 
           {canManage && (

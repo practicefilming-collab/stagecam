@@ -1,8 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AuditionTakePlaybackData, AuditionTakePlaybackItem } from '@/lib/auditions/build-take-playback';
+
+interface ReplayExportStatusResponse {
+  jobId: string;
+  status: 'queued' | 'processing' | 'succeeded' | 'failed' | 'expired';
+  progressPct: number;
+  errorMessage: string | null;
+  downloadUrl: string | null;
+}
 
 export function AuditionTakePlayer({
   auditionId,
@@ -18,6 +26,9 @@ export function AuditionTakePlayer({
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -27,7 +38,7 @@ export function AuditionTakePlayer({
       const res = await fetch(`/api/auditions/takes/${takeId}/playback`);
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
-        setError(payload.error || 'Failed to load take replay');
+        setError(payload.error || 'Failed to load rehearsal replay');
         setLoading(false);
         return;
       }
@@ -90,6 +101,77 @@ export function AuditionTakePlayer({
     setCurrentIdx(idx);
   };
 
+  const handleDownload = async () => {
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    try {
+      setDownloading(true);
+      setDownloadError('');
+      setDownloadProgress(0);
+
+      const createRes = await fetch(`/api/auditions/takes/${takeId}/exports`, { method: 'POST' });
+      if (!createRes.ok) {
+        const payload = await createRes.json().catch(() => ({}));
+        setDownloadError(payload.error || 'Failed to queue replay export');
+        return;
+      }
+
+      const created = await createRes.json();
+      const jobId = created.jobId as string | undefined;
+      if (!jobId) {
+        setDownloadError('Invalid replay export response');
+        return;
+      }
+
+      void fetch(`/api/auditions/exports/${jobId}/kickoff`, { method: 'POST' }).catch(() => undefined);
+
+      for (let i = 0; i < 180; i += 1) {
+        const statusRes = await fetch(`/api/auditions/exports/${jobId}`);
+        if (!statusRes.ok) {
+          const payload = await statusRes.json().catch(() => ({}));
+          setDownloadError(payload.error || 'Failed to fetch replay export status');
+          return;
+        }
+
+        const statusData = await statusRes.json() as ReplayExportStatusResponse;
+        setDownloadProgress(statusData.progressPct ?? 0);
+
+        if (statusData.status === 'succeeded' && statusData.downloadUrl) {
+          const anchor = document.createElement('a');
+          anchor.href = statusData.downloadUrl;
+          anchor.rel = 'noopener';
+          document.body.appendChild(anchor);
+          anchor.click();
+          anchor.remove();
+          setDownloadProgress(100);
+          return;
+        }
+
+        if (statusData.status === 'failed') {
+          setDownloadError(statusData.errorMessage || 'Replay export failed');
+          return;
+        }
+
+        if (statusData.status === 'expired') {
+          setDownloadError('Replay export expired. Try again.');
+          return;
+        }
+
+        if (statusData.status === 'queued' && i > 2 && i % 10 === 0) {
+          void fetch(`/api/auditions/exports/${jobId}/kickoff`, { method: 'POST' }).catch(() => undefined);
+        }
+
+        await wait(2000);
+      }
+
+      setDownloadError('Replay export timed out. Please try again.');
+    } catch {
+      setDownloadError('Replay download failed');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   const renderCurrentText = (item: AuditionTakePlaybackItem) => (
     <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
       {item.isSystem && (
@@ -112,7 +194,7 @@ export function AuditionTakePlayer({
       )}
       {!item.hasRecording && (
         <p className="mt-4 text-xs text-muted">
-          {item.ttsUrl ? 'Level 1 cue audio' : 'Fallback scene text'}
+          {item.ttsUrl ? 'Level 2 shared cue audio' : 'Fallback scene text'}
         </p>
       )}
     </div>
@@ -121,7 +203,7 @@ export function AuditionTakePlayer({
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <p className="text-muted">Loading take replay...</p>
+        <p className="text-muted">Loading rehearsal replay...</p>
       </div>
     );
   }
@@ -129,17 +211,17 @@ export function AuditionTakePlayer({
   if (error || !data) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <p className="text-red-400">{error || 'Take replay unavailable'}</p>
+        <p className="text-red-400">{error || 'Rehearsal replay unavailable'}</p>
       </div>
     );
   }
 
   const progress = items.length > 0 ? ((currentIdx + 1) / items.length) * 100 : 0;
-  const takeLabel = data.take.title ?? `Take ${data.take.id.slice(0, 8)}`;
+  const takeLabel = data.take.title ?? `Rehearsal ${data.take.id.slice(0, 8)}`;
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-8">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.3em] text-gold/80">Rehearsal replay</p>
           <h1 className="mt-2 text-3xl font-bold text-gold">{takeLabel}</h1>
@@ -148,16 +230,27 @@ export function AuditionTakePlayer({
             {data.scene.sourcePageRef ? ` • ${data.scene.sourcePageRef}` : ''}
           </p>
         </div>
-        <Link
-          href={`/pro/auditions/${auditionId}/scenes/${sceneId}`}
-          className="rounded-xl border border-border px-4 py-2 text-sm text-muted hover:text-foreground"
-        >
-          Back to scene
-        </Link>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => void handleDownload()}
+            disabled={downloading}
+            className="rounded-xl border border-border px-4 py-2 text-sm text-muted hover:text-foreground disabled:opacity-50"
+          >
+            {downloading
+              ? `Downloading${downloadProgress !== null ? ` ${Math.max(0, Math.min(99, downloadProgress))}%` : '...'}`
+              : 'Download replay'}
+          </button>
+          <Link
+            href={`/pro/auditions/${auditionId}/scenes/${sceneId}`}
+            className="rounded-xl border border-border px-4 py-2 text-sm text-muted hover:text-foreground"
+          >
+            Back to scene
+          </Link>
+        </div>
       </div>
 
-        <div className="overflow-hidden rounded-2xl border border-border bg-surface">
-          <div className="border-b border-border px-4 py-3">
+      <div className="overflow-hidden rounded-2xl border border-border bg-surface">
+        <div className="border-b border-border px-4 py-3">
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-sm font-medium text-gold">
@@ -175,29 +268,29 @@ export function AuditionTakePlayer({
           <div className="mt-2 h-1 rounded-full bg-border">
             <div className="h-full rounded-full bg-gold transition-all" style={{ width: `${progress}%` }} />
           </div>
-          </div>
+        </div>
 
-          {data.participantProgress.length > 0 && (
-            <div className="border-b border-border bg-background/40 px-4 py-4">
-              <div className="text-xs uppercase tracking-wide text-gold/80">Participant upload progress</div>
-              <div className="mt-3 grid gap-3 md:grid-cols-2">
-                {data.participantProgress.map((participant) => (
-                  <div key={participant.userId} className="rounded-2xl border border-border bg-surface px-4 py-3 text-sm">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="font-medium">{participant.displayName ?? participant.userId}</div>
-                      <div className="text-xs uppercase tracking-wide text-muted">{participant.status.replace(/_/g, ' ')}</div>
-                    </div>
-                    <div className="mt-2 text-xs text-muted">
-                      {participant.uploadedLineCount}/{participant.assignedLineCount} uploaded
-                      {participant.remainingLineCount > 0 ? ` • ${participant.remainingLineCount} still using fallback` : ''}
-                    </div>
+        {data.participantProgress.length > 0 && (
+          <div className="border-b border-border bg-background/40 px-4 py-4">
+            <div className="text-xs uppercase tracking-wide text-gold/80">Participant upload progress</div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              {data.participantProgress.map((participant) => (
+                <div key={participant.userId} className="rounded-2xl border border-border bg-surface px-4 py-3 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="font-medium">{participant.displayName ?? participant.userId}</div>
+                    <div className="text-xs uppercase tracking-wide text-muted">{participant.status.replace(/_/g, ' ')}</div>
                   </div>
-                ))}
-              </div>
+                  <div className="mt-2 text-xs text-muted">
+                    {participant.uploadedLineCount}/{participant.assignedLineCount} uploaded
+                    {participant.remainingLineCount > 0 ? ` • ${participant.remainingLineCount} still using fallback` : ''}
+                  </div>
+                </div>
+              ))}
             </div>
-          )}
+          </div>
+        )}
 
-          <div className="relative mx-auto aspect-[9/16] max-h-[50vh] w-full bg-black">
+        <div className="relative mx-auto aspect-[9/16] max-h-[50vh] w-full bg-black">
           <video
             ref={videoRef}
             playsInline
@@ -232,6 +325,13 @@ export function AuditionTakePlayer({
           </span>
 
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => void handleDownload()}
+              disabled={downloading}
+              className="rounded-full border border-border bg-surface px-4 py-2 text-sm transition-colors hover:bg-surface-hover disabled:opacity-50"
+            >
+              {downloading ? `${Math.max(0, Math.min(99, downloadProgress ?? 0))}%` : 'Download'}
+            </button>
             {!playing ? (
               <button
                 onClick={() => setPlaying(true)}
@@ -263,6 +363,12 @@ export function AuditionTakePlayer({
 
           <span className="text-xs text-muted">{current?.type}</span>
         </div>
+
+        {downloadError && (
+          <div className="px-4 pb-2">
+            <p className="text-xs text-red-400">{downloadError}</p>
+          </div>
+        )}
 
         <div className="flex gap-0.5 overflow-x-auto border-t border-border px-4 py-2">
           {items.map((item, idx) => (

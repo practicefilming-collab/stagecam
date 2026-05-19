@@ -215,12 +215,61 @@ async function renderTtsSegment(outputPath: string, item: PlaybackItem): Promise
   }
 }
 
+async function renderTextOnlySegment(outputPath: string, item: PlaybackItem): Promise<void> {
+  const cardPath = `${outputPath}.png`;
+  try {
+    await createTtsTextCard(cardPath, item);
+
+    const args = [
+      '-y',
+      '-loop',
+      '1',
+      '-i',
+      cardPath,
+      '-f',
+      'lavfi',
+      '-i',
+      'anullsrc=r=48000:cl=stereo',
+      '-t',
+      '3',
+      '-map', '0:v:0', '-map', '1:a:0', '-shortest', '-r', `${OUTPUT_FPS}`,
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac', '-ar', '48000', '-ac', '2', '-movflags', '+faststart', outputPath,
+    ];
+
+    await runProcess(FFMPEG_BIN, args);
+  } catch (error) {
+    console.warn('Falling back to black text-only card (font assets unavailable):', error);
+    const fallback = [
+      '-y',
+      '-f',
+      'lavfi',
+      '-i',
+      `color=c=black:s=${OUTPUT_WIDTH}x${OUTPUT_HEIGHT}:d=3`,
+      '-f',
+      'lavfi',
+      '-i',
+      'anullsrc=r=48000:cl=stereo',
+      '-map', '0:v:0', '-map', '1:a:0', '-shortest', '-r', `${OUTPUT_FPS}`,
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac', '-ar', '48000', '-ac', '2', '-movflags', '+faststart', outputPath,
+    ];
+    await runProcess(FFMPEG_BIN, fallback);
+  } finally {
+    await fs.rm(cardPath, { force: true });
+  }
+}
+
 async function buildSegment(outputPath: string, item: PlaybackItem): Promise<void> {
   if (item.hasRecording && item.recordingUrl) {
     await renderRecordingSegment(outputPath, item.recordingUrl);
     return;
   }
-  await renderTtsSegment(outputPath, item);
+  if (item.ttsUrl) {
+    await renderTtsSegment(outputPath, item);
+    return;
+  }
+  await renderTextOnlySegment(outputPath, item);
 }
 
 async function concatenateSegments(segmentPaths: string[], outputPath: string, listPath: string): Promise<void> {

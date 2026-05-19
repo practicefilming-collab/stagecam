@@ -45,6 +45,7 @@ export default async function AuditionScenePage({
       takes={takes}
       viewerUserId={viewer.userId}
       canManage={viewer.profile.is_admin}
+      canHostRoom={access.canControlRoom}
     />
   );
 }

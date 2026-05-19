@@ -44,22 +44,56 @@ export async function POST(
   });
 
   const admin = createAdminClient();
-  const roomCode = await generateUniqueAuditionRoomCode(admin);
   const status = body.status === 'active' ? 'active' : 'waiting';
-  const { data: room, error } = await admin
+  const { data: existingRoom } = await admin
     .from('audition_room_sessions')
-    .insert({
-      audition_script_id: auditionId,
-      active_scene_id: activeSceneId,
-      host_user_id: viewer.userId,
-      room_code: roomCode,
-      status,
-      draft_assignments: draftAssignments,
-    })
     .select('*')
-    .single();
+    .eq('audition_script_id', auditionId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let room: Record<string, unknown> | null = null;
+  let error: { message: string } | null = null;
+
+  if (existingRoom) {
+    const updated = await admin
+      .from('audition_room_sessions')
+      .update({
+        active_scene_id: activeSceneId,
+        active_take_id: null,
+        host_user_id: viewer.userId,
+        status,
+        ended_at: null,
+        draft_assignments: draftAssignments,
+      })
+      .eq('id', existingRoom.id)
+      .select('*')
+      .single();
+
+    room = updated.data as Record<string, unknown> | null;
+    error = updated.error as { message: string } | null;
+  } else {
+    const roomCode = await generateUniqueAuditionRoomCode(admin);
+    const created = await admin
+      .from('audition_room_sessions')
+      .insert({
+        audition_script_id: auditionId,
+        active_scene_id: activeSceneId,
+        host_user_id: viewer.userId,
+        room_code: roomCode,
+        status,
+        draft_assignments: draftAssignments,
+      })
+      .select('*')
+      .single();
+
+    room = created.data as Record<string, unknown> | null;
+    error = created.error as { message: string } | null;
+  }
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!room) return NextResponse.json({ error: 'Could not prepare room' }, { status: 500 });
 
   if (access.viewerRole === 'rehearsal_partner') {
     await ensureAuditionScenarioRelationship({
@@ -69,12 +103,12 @@ export async function POST(
       relatedUserId: viewer.userId,
       relationshipType: 'rehearsal_partner_to_assignee',
       scenarioSource: 'room_participation',
-      roomSessionId: room.id,
+      roomSessionId: String(room.id),
     });
   }
 
   await admin.from('audition_room_participants').upsert({
-    room_session_id: room.id,
+    room_session_id: String(room.id),
     user_id: viewer.userId,
     role_type: access.viewerRole === 'admin'
       ? 'admin'
