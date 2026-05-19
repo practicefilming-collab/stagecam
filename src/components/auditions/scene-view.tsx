@@ -1,9 +1,15 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import type { AuditionAttempt, AuditionProgressionStep, AuditionPracticeMode, AuditionRole } from '@/lib/types';
-import type { AuditionDetail, AuditionSceneWithRoles } from '@/lib/auditions/data';
+import type { AuditionAttempt, AuditionProgressionStep, AuditionRole } from '@/lib/types';
+import type {
+  AuditionDetail,
+  AuditionSceneWithRoles,
+  AuditionTakeDetail,
+  AuditionTakeSummary,
+} from '@/lib/auditions/data';
+import { summarizeSceneReadiness } from '@/lib/auditions/scene-runtime';
 
 const STEPS: AuditionProgressionStep[] = [
   'scene_familiarization',
@@ -12,22 +18,18 @@ const STEPS: AuditionProgressionStep[] = [
   'room_ready',
 ];
 
-const MODES: AuditionPracticeMode[] = [
-  'guided_read',
-  'cue_response',
-  'room_rehearsal',
-];
-
 export function AuditionSceneView({
   detail,
   scene,
   attempts,
+  takes,
   viewerUserId,
   canManage,
 }: {
   detail: AuditionDetail;
   scene: AuditionSceneWithRoles;
   attempts: AuditionAttempt[];
+  takes: AuditionTakeSummary[];
   viewerUserId: string;
   canManage: boolean;
 }) {
@@ -35,9 +37,9 @@ export function AuditionSceneView({
   const [sourcePageRef, setSourcePageRef] = useState(scene.source_page_ref ?? '');
   const [sceneText, setSceneText] = useState(scene.scene_text);
   const [rolesCsv, setRolesCsv] = useState(scene.roles.map((role) => role.name).join(', '));
-  const [attemptMode, setAttemptMode] = useState<AuditionPracticeMode>('guided_read');
-  const [attemptStep, setAttemptStep] = useState<AuditionProgressionStep>('scene_familiarization');
-  const [attemptNotes, setAttemptNotes] = useState('');
+  const [processingMetadata, setProcessingMetadata] = useState<Record<string, unknown>>(scene.processing_metadata ?? {});
+  const [selectedTakeId, setSelectedTakeId] = useState<string | null>(takes[0]?.id ?? null);
+  const [selectedTake, setSelectedTake] = useState<AuditionTakeDetail | null>(null);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -52,6 +54,24 @@ export function AuditionSceneView({
   );
   const progressMap = new Map(progressRows.map((row) => [row.progression_step, row]));
   const isAssignedRehearser = detail.script.assigned_rehearser_user_id === viewerUserId;
+  const readiness = useMemo(
+    () => summarizeSceneReadiness({ ...scene, scene_text: sceneText, processing_metadata: processingMetadata }, rolesCsv.split(',').map((item) => item.trim()).filter(Boolean)),
+    [processingMetadata, rolesCsv, scene, sceneText],
+  );
+
+  useEffect(() => {
+    if (!selectedTakeId) {
+      setSelectedTake(null);
+      return;
+    }
+    const load = async () => {
+      const res = await fetch(`/api/auditions/takes/${selectedTakeId}`);
+      if (!res.ok) return;
+      const payload = await res.json();
+      setSelectedTake(payload);
+    };
+    void load();
+  }, [selectedTakeId]);
 
   const saveScene = async () => {
     setSaving(true);
@@ -64,6 +84,7 @@ export function AuditionSceneView({
         label,
         source_page_ref: sourcePageRef,
         scene_text: sceneText,
+        processing_metadata: processingMetadata,
       }),
     });
 
@@ -110,52 +131,25 @@ export function AuditionSceneView({
     router.refresh();
   };
 
-  const addAttempt = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setSaving(true);
-    setError('');
-
-    const res = await fetch(`/api/auditions/${detail.script.id}/scenes/${scene.id}/attempts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        practice_mode: attemptMode,
-        progression_step: attemptStep,
-        selected_role_name: selectedRoleName,
-        notes: attemptNotes,
-        completed: true,
-      }),
-    });
-
-    if (!res.ok) {
-      const payload = await res.json();
-      setError(payload.error || 'Could not save take');
-      setSaving(false);
-      return;
-    }
-
-    setAttemptNotes('');
-    setSuccess('Take saved.');
-    setSaving(false);
-    router.refresh();
-  };
-
   return (
-    <div className="max-w-5xl mx-auto px-4 py-10 space-y-8">
+    <div className="max-w-6xl mx-auto px-4 py-10 space-y-8">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-gold/80">Scene rehearsal</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-gold/80">Scene takes</p>
           <h1 className="mt-2 text-3xl font-bold text-gold">{scene.label}</h1>
           <p className="mt-2 text-sm text-muted">
             {detail.script.title} {scene.source_page_ref ? `• ${scene.source_page_ref}` : ''}
           </p>
+        </div>
+        <div className="rounded-full border border-gold/30 px-4 py-2 text-xs text-gold">
+          {readiness.level.replace(/_/g, ' ')}
         </div>
       </div>
 
       {success && <p className="text-sm text-green-400">{success}</p>}
       {error && <p className="text-sm text-red-400">{error}</p>}
 
-      <section className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
+      <section className="grid gap-8 lg:grid-cols-[0.92fr_1.08fr]">
         <div className="space-y-6">
           <div className="rounded-3xl border border-border bg-surface p-6">
             <div className="mb-4 flex flex-wrap gap-2">
@@ -175,6 +169,146 @@ export function AuditionSceneView({
             <div className="whitespace-pre-wrap rounded-2xl border border-border bg-background/40 p-5 text-sm leading-7 text-foreground">
               {scene.scene_text}
             </div>
+          </div>
+
+          <div className="rounded-3xl border border-border bg-surface p-6">
+            <h2 className="text-lg font-semibold">Take ledger</h2>
+            <p className="mt-1 text-sm text-muted">
+              Each take is a full scene run. Start new ones from the audition room, then review them here in chronological order.
+            </p>
+            <div className="mt-4 space-y-3">
+              {takes.map((take) => (
+                <button
+                  key={take.id}
+                  onClick={() => setSelectedTakeId(take.id)}
+                  className={`w-full rounded-2xl border px-4 py-4 text-left transition-colors ${
+                    selectedTakeId === take.id
+                      ? 'border-gold/40 bg-gold/10'
+                      : 'border-border bg-background/40 hover:border-gold/20'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-medium">{take.title ?? `Take ${take.id.slice(0, 8)}`}</div>
+                      <div className="mt-1 text-xs uppercase tracking-wide text-gold/80">{take.status}</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {take.assignments.map((assignment) => (
+                          <span key={assignment.id} className="rounded-full border border-border px-2 py-1 text-[11px] text-muted">
+                            {assignment.role_name} • {assignment.assignment_type === 'fallback_audio' ? 'fallback' : 'human'}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="text-right text-xs text-muted">
+                      <div>{new Date(take.created_at).toLocaleString()}</div>
+                      <div className="mt-1">{take.clipCount} clips</div>
+                    </div>
+                  </div>
+                </button>
+              ))}
+              {takes.length === 0 && (
+                <p className="rounded-2xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted">
+                  No takes have been recorded for this scene yet.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-border bg-surface p-6">
+            <h2 className="text-lg font-semibold">Private Progress</h2>
+            <p className="mt-1 text-sm text-muted">
+              Steps for {selectedRoleName || 'the selected role'}.
+            </p>
+            <div className="mt-4 space-y-3">
+              {STEPS.map((step) => {
+                const completed = progressMap.get(step)?.is_complete ?? false;
+                return (
+                  <button
+                    key={step}
+                    onClick={() => toggleStep(step, !completed)}
+                    disabled={!isAssignedRehearser && !canManage}
+                    className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition-colors ${
+                      completed
+                        ? 'border-green-500/30 bg-green-500/10 text-green-300'
+                        : 'border-border bg-background/40 text-foreground hover:border-gold/30'
+                    } disabled:opacity-60`}
+                  >
+                    <span className="text-sm font-medium">{step.replace(/_/g, ' ')}</span>
+                    <span className="text-xs uppercase tracking-wide">{completed ? 'Complete' : 'Open'}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {attempts.length > 0 && (
+            <div className="rounded-3xl border border-border bg-surface p-6">
+              <h2 className="text-lg font-semibold">Legacy attempts</h2>
+              <div className="mt-4 space-y-3">
+                {attempts.map((attempt) => (
+                  <div key={attempt.id} className="rounded-2xl border border-border bg-background/40 p-4">
+                    <div className="text-sm font-medium">{attempt.practice_mode.replace(/_/g, ' ')}</div>
+                    {attempt.notes && <p className="mt-2 text-sm text-muted">{attempt.notes}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-6">
+          <div className="rounded-3xl border border-border bg-surface p-6">
+            <h2 className="text-lg font-semibold">Selected take</h2>
+            {!selectedTake && (
+              <p className="mt-4 text-sm text-muted">Choose a take to review its cast plan and recorded clips.</p>
+            )}
+            {selectedTake && (
+              <div className="mt-4 space-y-4">
+                <div className="rounded-2xl border border-border bg-background/40 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-base font-medium">{selectedTake.title ?? `Take ${selectedTake.id.slice(0, 8)}`}</div>
+                      <div className="mt-1 text-xs uppercase tracking-wide text-gold/80">{selectedTake.status}</div>
+                    </div>
+                    <div className="text-xs text-muted">{new Date(selectedTake.created_at).toLocaleString()}</div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {selectedTake.assignments.map((assignment) => (
+                      <span key={assignment.id} className="rounded-full border border-border px-3 py-1 text-xs text-muted">
+                        {assignment.role_name} • {assignment.assignment_type === 'fallback_audio' ? 'fallback' : 'human'}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-background/40 p-4">
+                  <h3 className="text-sm font-semibold">Recorded clips</h3>
+                  <div className="mt-4 space-y-4">
+                    {selectedTake.clips.map((clip) => (
+                      <div key={clip.id} className="rounded-2xl border border-border bg-surface/70 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-medium">{clip.role_name}</div>
+                            <div className="mt-1 text-xs text-muted">{clip.line_text}</div>
+                          </div>
+                          <div className="text-xs text-muted">{new Date(clip.created_at).toLocaleString()}</div>
+                        </div>
+                        {clip.signed_url ? (
+                          <video src={clip.signed_url} controls className="mt-3 w-full rounded-xl bg-black" />
+                        ) : (
+                          <p className="mt-3 text-xs text-muted">Clip preview unavailable.</p>
+                        )}
+                      </div>
+                    ))}
+                    {selectedTake.clips.length === 0 && (
+                      <p className="rounded-2xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted">
+                        No clips uploaded yet for this take.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {canManage && (
@@ -204,6 +338,32 @@ export function AuditionSceneView({
                   className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:border-gold/50"
                   placeholder="Roles, comma separated"
                 />
+                <div className="grid gap-3 md:grid-cols-3">
+                  <button
+                    onClick={() => setProcessingMetadata((prev) => ({ ...prev, readiness_level: 'level_1_ready' }))}
+                    className="rounded-xl border border-border px-4 py-3 text-sm text-muted hover:text-foreground"
+                  >
+                    Mark Level 1
+                  </button>
+                  <button
+                    onClick={() => setProcessingMetadata((prev) => {
+                      const ai = (prev.ai && typeof prev.ai === 'object') ? prev.ai as Record<string, unknown> : {};
+                      return { ...prev, readiness_level: 'level_2_ready', ai: { ...ai, level2_ready: true } };
+                    })}
+                    className="rounded-xl border border-border px-4 py-3 text-sm text-muted hover:text-foreground"
+                  >
+                    Mark Level 2
+                  </button>
+                  <button
+                    onClick={() => setProcessingMetadata((prev) => {
+                      const ai = (prev.ai && typeof prev.ai === 'object') ? prev.ai as Record<string, unknown> : {};
+                      return { ...prev, readiness_level: 'level_3_ready', ai: { ...ai, level2_ready: true, level3_ready: true } };
+                    })}
+                    className="rounded-xl border border-border px-4 py-3 text-sm text-muted hover:text-foreground"
+                  >
+                    Mark Level 3
+                  </button>
+                </div>
                 <button
                   onClick={saveScene}
                   disabled={saving}
@@ -214,100 +374,6 @@ export function AuditionSceneView({
               </div>
             </div>
           )}
-        </div>
-
-        <div className="space-y-6">
-          <div className="rounded-3xl border border-border bg-surface p-6">
-            <h2 className="text-lg font-semibold">Private Progress</h2>
-            <p className="mt-1 text-sm text-muted">
-              Steps for {selectedRoleName || 'the selected role'}.
-            </p>
-            <div className="mt-4 space-y-3">
-              {STEPS.map((step) => {
-                const completed = progressMap.get(step)?.is_complete ?? false;
-                return (
-                  <button
-                    key={step}
-                    onClick={() => toggleStep(step, !completed)}
-                    disabled={!isAssignedRehearser && !canManage}
-                    className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition-colors ${
-                      completed
-                        ? 'border-green-500/30 bg-green-500/10 text-green-300'
-                        : 'border-border bg-background/40 text-foreground hover:border-gold/30'
-                    } disabled:opacity-60`}
-                  >
-                    <span className="text-sm font-medium">{step.replace(/_/g, ' ')}</span>
-                    <span className="text-xs uppercase tracking-wide">{completed ? 'Complete' : 'Open'}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-border bg-surface p-6">
-            <h2 className="text-lg font-semibold">Add Take</h2>
-            <form onSubmit={addAttempt} className="mt-4 space-y-3">
-              <select
-                value={attemptMode}
-                onChange={(event) => setAttemptMode(event.target.value as AuditionPracticeMode)}
-                className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:border-gold/50"
-              >
-                {MODES.map((mode) => (
-                  <option key={mode} value={mode}>{mode.replace(/_/g, ' ')}</option>
-                ))}
-              </select>
-              <select
-                value={attemptStep}
-                onChange={(event) => setAttemptStep(event.target.value as AuditionProgressionStep)}
-                className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:border-gold/50"
-              >
-                {STEPS.map((step) => (
-                  <option key={step} value={step}>{step.replace(/_/g, ' ')}</option>
-                ))}
-              </select>
-              <textarea
-                value={attemptNotes}
-                onChange={(event) => setAttemptNotes(event.target.value)}
-                placeholder="Notes for this take"
-                rows={4}
-                className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:border-gold/50"
-              />
-              <button
-                type="submit"
-                disabled={saving || (!isAssignedRehearser && !canManage)}
-                className="rounded-xl bg-gold px-5 py-3 text-sm font-semibold text-black hover:bg-gold-dim disabled:opacity-50"
-              >
-                {saving ? 'Saving...' : 'Save take'}
-              </button>
-            </form>
-          </div>
-
-          <div className="rounded-3xl border border-border bg-surface p-6">
-            <h2 className="text-lg font-semibold">Take History</h2>
-            <div className="mt-4 space-y-3">
-              {attempts.map((attempt) => (
-                <div key={attempt.id} className="rounded-2xl border border-border bg-background/40 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-medium">{attempt.practice_mode.replace(/_/g, ' ')}</div>
-                      <div className="mt-1 text-xs uppercase tracking-wide text-gold/80">
-                        {attempt.progression_step.replace(/_/g, ' ')}
-                      </div>
-                      {attempt.notes && <p className="mt-2 text-sm text-muted">{attempt.notes}</p>}
-                    </div>
-                    <div className="text-xs text-muted">
-                      {new Date(attempt.created_at).toLocaleString()}
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {attempts.length === 0 && (
-                <p className="rounded-2xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted">
-                  No takes saved yet for this scene.
-                </p>
-              )}
-            </div>
-          </div>
         </div>
       </section>
     </div>

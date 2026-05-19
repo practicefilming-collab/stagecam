@@ -22,5 +22,13 @@ export const AUDITION_ATTEMPT_OWNERSHIP_TYPES = [
   'assigned_rehearser',
   'guest_participant',
 ] as const;
+export const AUDITION_TAKE_STATUSES = ['setup', 'recording', 'completed'] as const;
+export const AUDITION_TAKE_ASSIGNMENT_TYPES = ['human', 'fallback_audio'] as const;
+export const AUDITION_READINESS_LEVELS = [
+  'not_started',
+  'level_1_ready',
+  'level_2_ready',
+  'level_3_ready',
+] as const;
 
 export const AUDITION_STORAGE_BUCKET = 'audition-scripts';

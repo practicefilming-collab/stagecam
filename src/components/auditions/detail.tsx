@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { AuditionDetail } from '@/lib/auditions/data';
+import { summarizeAuditionSceneCard } from '@/lib/auditions/data';
 import type { AuditionProgressionStep } from '@/lib/types';
 import { getAuditionStatusDescription, getAuditionStatusLabel } from '@/lib/auditions/status';
 import { AuditionProcessingPanel } from './processing-panel';
@@ -22,14 +23,15 @@ const STEP_ORDER: AuditionProgressionStep[] = [
 
 export function AuditionDetailView({
   initialDetail,
-  viewerUserId,
   canManage,
+  canHostRoom,
   uploadUsers,
   initialAiState,
+  relationshipLabel,
 }: {
   initialDetail: AuditionDetail;
-  viewerUserId: string;
   canManage: boolean;
+  canHostRoom: boolean;
   uploadUsers: UploadUser[];
   initialAiState: {
     linkedScript: { id: string; title: string; slug: string };
@@ -52,6 +54,7 @@ export function AuditionDetailView({
       finished_at: string | null;
     }>;
   } | null;
+  relationshipLabel: string | null;
 }) {
   const [detail, setDetail] = useState(initialDetail);
   const [title, setTitle] = useState(initialDetail.script.title);
@@ -191,8 +194,6 @@ export function AuditionDetailView({
     router.push(`/rooms/auditions/${payload.room_code}`);
   };
 
-  const canHostRoom = canManage || detail.script.assigned_rehearser_user_id === viewerUserId;
-
   return (
     <div className="max-w-6xl mx-auto px-4 py-10 space-y-8">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -205,6 +206,11 @@ export function AuditionDetailView({
             {detail.assignedRehearser && (
               <span className="rounded-full border border-border px-3 py-1">
                 Assigned: {detail.assignedRehearser.display_name}
+              </span>
+            )}
+            {relationshipLabel && (
+              <span className="rounded-full border border-border px-3 py-1">
+                Relation: {relationshipLabel}
               </span>
             )}
             {detail.processor && (
@@ -237,6 +243,7 @@ export function AuditionDetailView({
         canManage={canManage}
         linkedScriptId={detail.linkedScript?.id ?? null}
         initialAiState={initialAiState}
+        scenes={detail.scenes}
       />
 
       <section className="grid gap-8 lg:grid-cols-[0.95fr_1.05fr]">
@@ -319,6 +326,9 @@ export function AuditionDetailView({
             <div className="space-y-4">
               {detail.scenes.map((scene, index) => (
                 <div key={scene.id} className="rounded-2xl border border-border bg-background/40 p-4">
+                  {(() => {
+                    const readiness = summarizeAuditionSceneCard(scene);
+                    return (
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div>
                       <div className="text-xs uppercase tracking-wide text-gold/80">Scene {index + 1}</div>
@@ -333,6 +343,12 @@ export function AuditionDetailView({
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
+                      <div className="rounded-xl border border-border px-3 py-2 text-center">
+                        <div className="text-xs uppercase tracking-wide text-muted">Readiness</div>
+                        <div className="mt-1 text-sm font-semibold">
+                          {readiness.level.replace(/_/g, ' ')}
+                        </div>
+                      </div>
                       <div className="rounded-xl border border-border px-3 py-2 text-center">
                         <div className="text-xs uppercase tracking-wide text-muted">Progress</div>
                         <div className="mt-1 text-sm font-semibold">
@@ -356,6 +372,8 @@ export function AuditionDetailView({
                       )}
                     </div>
                   </div>
+                    );
+                  })()}
 
                   {canManage && (
                     <div className="mt-4 flex gap-2">

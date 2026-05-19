@@ -1,5 +1,11 @@
-import { getAuditionViewerContext } from '@/lib/auditions/auth';
+import {
+  ensureAuditionScenarioRelationship,
+  formatAuditionRelationshipLabel,
+  getAuditionScriptAccessContext,
+  getAuditionViewerContext,
+} from '@/lib/auditions/auth';
 import { getAuditionRoomBundle } from '@/lib/auditions/room-data';
+import { normalizeDraftAssignments } from '@/lib/auditions/scene-runtime';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { NextResponse } from 'next/server';
 
@@ -14,12 +20,26 @@ export async function GET(
   const bundle = await getAuditionRoomBundle(roomCode);
   if (!bundle) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  const isAdmin = viewer.profile.is_admin;
-  const isAssignedRehearser = bundle.script.assigned_rehearser_user_id === viewer.userId;
+  const access = await getAuditionScriptAccessContext({ viewer, script: bundle.script });
+  const isAssignedRehearser = access.viewerRole === 'assigned_rehearser';
+  const isAdmin = access.viewerRole === 'admin';
   const isHost = bundle.room.host_user_id === viewer.userId;
 
-  if (!isAdmin && !isAssignedRehearser && bundle.room.status === 'ended') {
+  if (!access.canAccess && bundle.room.status === 'ended') {
     return NextResponse.json({ error: 'This room has ended' }, { status: 403 });
+  }
+
+  const admin = createAdminClient();
+  if (!access.canAccess) {
+    await ensureAuditionScenarioRelationship({
+      admin,
+      auditionScriptId: bundle.script.id,
+      assignedRehearserUserId: bundle.script.assigned_rehearser_user_id,
+      relatedUserId: viewer.userId,
+      relationshipType: 'rehearsal_partner_to_assignee',
+      scenarioSource: 'room_participation',
+      roomSessionId: bundle.room.id,
+    });
   }
 
   const roleType = isAdmin
@@ -30,7 +50,6 @@ export async function GET(
         ? 'assigned_rehearser'
         : 'guest';
 
-  const admin = createAdminClient();
   await admin
     .from('audition_room_participants')
     .upsert({
@@ -44,8 +63,12 @@ export async function GET(
 
   return NextResponse.json({
     ...bundle,
+    viewer_user_id: viewer.userId,
     viewer_role: roleType,
-    can_control_room: isAdmin || isHost || isAssignedRehearser,
+    relationship_label: access.canAccess
+      ? access.relationshipLabel
+      : formatAuditionRelationshipLabel({ relationshipType: 'rehearsal_partner_to_assignee' }),
+    can_control_room: access.canAccess || isHost || isAssignedRehearser,
   });
 }
 
@@ -60,15 +83,29 @@ export async function PATCH(
   const bundle = await getAuditionRoomBundle(roomCode);
   if (!bundle) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  const canControl = viewer.profile.is_admin || bundle.room.host_user_id === viewer.userId || bundle.script.assigned_rehearser_user_id === viewer.userId;
+  const access = await getAuditionScriptAccessContext({ viewer, script: bundle.script });
+  const canControl = access.canControlRoom || bundle.room.host_user_id === viewer.userId;
   if (!canControl) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
   const body = await request.json();
   const updates: Record<string, unknown> = {};
+  const activeScene = bundle.scenes.find((scene) => scene.id === (typeof body.active_scene_id === 'string' ? body.active_scene_id.trim() : bundle.room.active_scene_id))
+    ?? bundle.scenes.find((scene) => scene.id === bundle.room.active_scene_id)
+    ?? bundle.scenes[0];
   if (typeof body.active_scene_id === 'string' && body.active_scene_id.trim()) {
     updates.active_scene_id = body.active_scene_id.trim();
+  }
+  if (body.draft_assignments !== undefined && activeScene) {
+    const roleNames = ((activeScene.audition_roles ?? []) as Array<{ name: string }>).map((role) => role.name);
+    updates.draft_assignments = normalizeDraftAssignments({
+      roleNames,
+      rawAssignments: body.draft_assignments,
+    });
+  }
+  if (body.clear_active_take === true) {
+    updates.active_take_id = null;
   }
   if (typeof body.status === 'string') {
     updates.status = body.status;

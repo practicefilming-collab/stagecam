@@ -1,6 +1,10 @@
 import { redirect } from 'next/navigation';
 import { AuditionDetailView } from '@/components/auditions/detail';
-import { canAccessAuditionScript, canAccessAuditionsMode, getAuditionViewerContext } from '@/lib/auditions/auth';
+import {
+  canAccessAuditionsMode,
+  getAuditionScriptAccessContext,
+  getAuditionViewerContext,
+} from '@/lib/auditions/auth';
 import { getAuditionDetail } from '@/lib/auditions/data';
 import { createAdminClient } from '@/lib/supabase/admin';
 
@@ -16,7 +20,8 @@ export default async function AuditionDetailPage({
 
   const detail = await getAuditionDetail(auditionId);
   if (!detail) redirect('/pro/auditions');
-  if (!canAccessAuditionScript(viewer, detail.script)) redirect('/pro/auditions');
+  const access = await getAuditionScriptAccessContext({ viewer, script: detail.script });
+  if (!access.canAccess) redirect('/pro/auditions');
 
   const admin = createAdminClient();
   const linkedScript = detail.linkedScript;
@@ -58,10 +63,11 @@ export default async function AuditionDetailPage({
   return (
     <AuditionDetailView
       initialDetail={detail}
-      viewerUserId={viewer.userId}
       canManage={viewer.profile.is_admin}
+      canHostRoom={access.canControlRoom}
       uploadUsers={uploadUsers ?? []}
       initialAiState={initialAiState}
+      relationshipLabel={access.relationshipLabel}
     />
   );
 }

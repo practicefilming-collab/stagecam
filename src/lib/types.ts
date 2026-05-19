@@ -42,6 +42,11 @@ export type AuditionProgressionStep =
 export type AuditionAttemptOwnershipType = 'assigned_rehearser' | 'guest_participant';
 export type AuditionRoomStatus = 'waiting' | 'active' | 'ended';
 export type AuditionRoomParticipantRole = 'host' | 'assigned_rehearser' | 'guest' | 'admin';
+export type AuditionScriptRelationshipType = 'admin_to_assignee' | 'rehearsal_partner_to_assignee';
+export type AuditionScriptRelationshipScenarioSource = 'assignment_admin_access' | 'room_participation';
+export type AuditionTakeStatus = 'setup' | 'recording' | 'completed';
+export type AuditionTakeAssignmentType = 'human' | 'fallback_audio';
+export type AuditionReadinessLevel = 'not_started' | 'level_1_ready' | 'level_2_ready' | 'level_3_ready';
 
 export interface AuditionScript {
   id: string;
@@ -68,6 +73,7 @@ export interface AuditionScene {
   source_page_ref: string | null;
   scene_text: string;
   is_active: boolean;
+  processing_metadata?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
@@ -123,9 +129,11 @@ export interface AuditionRoomSession {
   id: string;
   audition_script_id: string;
   active_scene_id: string | null;
+  active_take_id: string | null;
   host_user_id: string;
   room_code: string;
   status: AuditionRoomStatus;
+  draft_assignments?: Record<string, unknown>[] | null;
   created_at: string;
   ended_at: string | null;
 }
@@ -137,6 +145,58 @@ export interface AuditionRoomParticipant {
   role_type: AuditionRoomParticipantRole;
   joined_at: string;
   left_at: string | null;
+}
+
+export interface AuditionScriptRelationship {
+  id: string;
+  audition_script_id: string;
+  assigned_rehearser_user_id: string;
+  related_user_id: string;
+  relationship_type: AuditionScriptRelationshipType;
+  scenario_source: AuditionScriptRelationshipScenarioSource;
+  room_session_id: string | null;
+  project_codename: string | null;
+  created_at: string;
+}
+
+export interface AuditionTake {
+  id: string;
+  audition_script_id: string;
+  audition_scene_id: string;
+  room_session_id: string | null;
+  status: AuditionTakeStatus;
+  started_by_user_id: string;
+  title: string | null;
+  notes: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface AuditionTakeRoleAssignment {
+  id: string;
+  take_id: string;
+  audition_role_id: string | null;
+  role_name: string;
+  user_id: string | null;
+  assignment_type: AuditionTakeAssignmentType;
+  created_at: string;
+}
+
+export interface AuditionTakeClip {
+  id: string;
+  take_id: string;
+  audition_scene_id: string;
+  room_session_id: string | null;
+  actor_user_id: string;
+  role_name: string;
+  sequence_index: number;
+  line_text: string;
+  storage_key: string;
+  content_type: string;
+  duration_seconds: number | null;
+  byte_length: number | null;
+  created_at: string;
 }
 
 export interface AIProfile {

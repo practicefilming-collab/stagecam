@@ -2,6 +2,7 @@ import {
   canAccessAuditionScript,
   canManageAuditionScript,
   getAuditionViewerContext,
+  syncAdminAuditionRelationships,
 } from '@/lib/auditions/auth';
 import { getAuditionDetail } from '@/lib/auditions/data';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -23,7 +24,7 @@ export async function GET(
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  if (!canAccessAuditionScript(viewer, detail.script)) {
+  if (!(await canAccessAuditionScript(viewer, detail.script))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -75,6 +76,15 @@ export async function PATCH(
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  const assignedRehearserUserId = String(
+    updates.assigned_rehearser_user_id ?? data.assigned_rehearser_user_id,
+  );
+  await syncAdminAuditionRelationships({
+    admin,
+    auditionScriptId: auditionId,
+    assignedRehearserUserId,
+  });
 
   return NextResponse.json(data);
 }

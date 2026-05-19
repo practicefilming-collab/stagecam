@@ -2,11 +2,13 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { summarizeSceneReadiness } from '@/lib/auditions/scene-runtime';
 import type {
   AuditionProcessingPreview,
   AuditionProcessingRoleBrief,
   AuditionProcessingScenePreview,
 } from '@/lib/auditions/processing';
+import type { AuditionSceneWithRoles } from '@/lib/auditions/data';
 
 interface AuditionAiState {
   linkedScript: { id: string; title: string; slug: string };
@@ -39,10 +41,12 @@ export function AuditionProcessingPanel({
   canManage,
   linkedScriptId,
   initialAiState,
+  scenes,
 }: {
   auditionId: string;
   canManage: boolean;
   linkedScriptId: string | null;
+  scenes: AuditionSceneWithRoles[];
   initialAiState: AuditionAiState | null;
 }) {
   const router = useRouter();
@@ -83,6 +87,17 @@ export function AuditionProcessingPanel({
   }
 
   if (!canManage) return null;
+
+  const readinessCards = scenes.map((scene) => {
+    const readiness = summarizeSceneReadiness(scene, scene.roles.map((role) => role.name));
+    return {
+      sceneId: scene.id,
+      label: scene.label,
+      level: readiness.level,
+      sampleRoleName: readiness.sampleRoleName,
+      sampleLine: readiness.sampleLine,
+    };
+  });
 
   async function analyze() {
     setLoadingPreview(true);
@@ -168,9 +183,9 @@ export function AuditionProcessingPanel({
     <section className="rounded-3xl border border-border bg-surface p-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <h2 className="text-lg font-semibold">Processing Assist</h2>
+          <h2 className="text-lg font-semibold">Scene Readiness Pipeline</h2>
           <p className="mt-1 text-sm text-muted">
-            Analyze the uploaded source, edit the proposed scenes and briefs, then apply that reviewed draft into the private audition and hidden shared-script AI path.
+            Move each scene from admin prep to room-ready use. Level 1 unlocks room takes, while Levels 2 and 3 upgrade voice quality and expressive guidance.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -179,7 +194,7 @@ export function AuditionProcessingPanel({
             disabled={loadingPreview || saving}
             className="rounded-xl border border-gold/40 px-4 py-2 text-sm text-gold hover:bg-gold/10 disabled:opacity-50"
           >
-            {loadingPreview ? 'Analyzing...' : 'Analyze source'}
+            {loadingPreview ? 'Analyzing...' : 'Rebuild draft'}
           </button>
           <button
             onClick={() => void loadAiState()}
@@ -193,27 +208,39 @@ export function AuditionProcessingPanel({
             disabled={!preview || saving}
             className="rounded-xl bg-gold px-4 py-2 text-sm font-semibold text-black hover:bg-gold-dim disabled:opacity-50"
           >
-            {saving ? 'Working...' : 'Apply reviewed draft'}
+            {saving ? 'Working...' : 'Apply scene prep'}
           </button>
           <button
             onClick={createProfiles}
             disabled={saving}
             className="rounded-xl border border-border px-4 py-2 text-sm text-muted hover:text-foreground disabled:opacity-50"
           >
-            Sync AI profiles
+            Sync role voices
           </button>
           <button
             onClick={runAi}
             disabled={saving}
             className="rounded-xl border border-border px-4 py-2 text-sm text-muted hover:text-foreground disabled:opacity-50"
           >
-            Start Grok read
+            Run Level 2/3 audio
           </button>
         </div>
       </div>
 
       {message && <p className="mt-4 text-sm text-green-400">{message}</p>}
       {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+
+      <div className="mt-6 grid gap-4 lg:grid-cols-3">
+        {readinessCards.map((card) => (
+          <div key={card.sceneId} className="rounded-2xl border border-border bg-background/40 p-4">
+            <div className="text-xs uppercase tracking-wide text-gold/80">{card.level.replace(/_/g, ' ')}</div>
+            <div className="mt-2 text-sm font-medium">{card.label}</div>
+            <div className="mt-3 text-xs text-muted">
+              Sample: {card.sampleRoleName ? `${card.sampleRoleName} — ${card.sampleLine ?? 'No line yet'}` : card.sampleLine ?? 'No line available'}
+            </div>
+          </div>
+        ))}
+      </div>
 
       {aiState && (
         <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_1fr]">

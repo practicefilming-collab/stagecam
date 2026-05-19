@@ -1,12 +1,19 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import {
+  summarizeSceneReadiness,
+  type AuditionDraftAssignment,
+} from '@/lib/auditions/scene-runtime';
 import type {
   AuditionRole,
   AuditionRoomParticipant,
   AuditionRoomSession,
   AuditionScene,
   AuditionScript,
+  AuditionTake,
+  AuditionTakeRoleAssignment,
   AuditionTargetRole,
 } from '@/lib/types';
 
@@ -16,8 +23,18 @@ interface RoomBundle {
   scenes: Array<AuditionScene & { audition_roles?: AuditionRole[] }>;
   targetRole: AuditionTargetRole | null;
   participants: Array<AuditionRoomParticipant & { profiles?: { display_name: string } | null }>;
+  activeTake: AuditionTake | null;
+  activeTakeAssignments: AuditionTakeRoleAssignment[];
+  viewer_user_id: string;
   viewer_role: string;
+  relationship_label: string | null;
   can_control_room: boolean;
+}
+
+function assignmentLabel(assignment: AuditionDraftAssignment, participants: RoomBundle['participants']) {
+  if (assignment.assignment_type === 'fallback_audio') return 'Fallback cue';
+  const participant = participants.find((item) => item.user_id === assignment.user_id);
+  return participant?.profiles?.display_name ?? 'Unassigned';
 }
 
 export function AuditionRoomView({
@@ -28,31 +45,56 @@ export function AuditionRoomView({
   initialBundle: RoomBundle;
 }) {
   const [bundle, setBundle] = useState(initialBundle);
+  const [draftAssignments, setDraftAssignments] = useState<AuditionDraftAssignment[]>(
+    (initialBundle.room.draft_assignments as AuditionDraftAssignment[] | null) ?? [],
+  );
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
+  const [savingCast, setSavingCast] = useState(false);
+  const [startingTake, setStartingTake] = useState(false);
 
   const activeScene = useMemo(
     () => bundle.scenes.find((scene) => scene.id === bundle.room.active_scene_id) ?? bundle.scenes[0] ?? null,
     [bundle.room.active_scene_id, bundle.scenes],
   );
 
+  const sceneRoles = useMemo(
+    () => ((activeScene?.audition_roles ?? []) as AuditionRole[]).map((role) => role.name),
+    [activeScene],
+  );
+
+  const readiness = useMemo(
+    () => activeScene
+      ? summarizeSceneReadiness(activeScene, sceneRoles)
+      : null,
+    [activeScene, sceneRoles],
+  );
+
   useEffect(() => {
-    void (async () => {
+    const load = async () => {
       const res = await fetch(`/api/audition-rooms/${roomCode}`);
       if (!res.ok) return;
       const payload = await res.json();
       setBundle(payload);
-    })();
+      setDraftAssignments((payload.room.draft_assignments as AuditionDraftAssignment[] | null) ?? []);
+    };
 
-    const interval = setInterval(async () => {
-      const res = await fetch(`/api/audition-rooms/${roomCode}`);
-      if (!res.ok) return;
-      const payload = await res.json();
-      setBundle(payload);
-    }, 5000);
-
+    void load();
+    const interval = setInterval(() => void load(), 5000);
     return () => clearInterval(interval);
   }, [roomCode]);
+
+  useEffect(() => {
+    if (!activeScene) return;
+    setDraftAssignments((current) => {
+      const roleMap = new Map(current.map((assignment) => [assignment.role_name, assignment]));
+      return sceneRoles.map((roleName) => roleMap.get(roleName) ?? {
+        role_name: roleName,
+        user_id: null,
+        assignment_type: 'fallback_audio' as const,
+      });
+    });
+  }, [activeScene, sceneRoles]);
 
   const updateRoom = async (updates: Record<string, unknown>) => {
     setError('');
@@ -65,13 +107,14 @@ export function AuditionRoomView({
     const payload = await res.json();
     if (!res.ok) {
       setError(payload.error || 'Could not update room');
-      return;
+      return false;
     }
 
     setBundle((prev) => ({
       ...prev,
       room: payload,
     }));
+    return true;
   };
 
   const copyInvite = async () => {
@@ -79,6 +122,68 @@ export function AuditionRoomView({
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  const saveCastPlan = async (nextAssignments: AuditionDraftAssignment[]) => {
+    setSavingCast(true);
+    setDraftAssignments(nextAssignments);
+    const ok = await updateRoom({ draft_assignments: nextAssignments });
+    if (!ok) {
+      setSavingCast(false);
+      return;
+    }
+    setSavingCast(false);
+  };
+
+  const claimRole = async (roleName: string, assignmentType: AuditionDraftAssignment['assignment_type']) => {
+    const nextAssignments: AuditionDraftAssignment[] = draftAssignments.map((assignment) => {
+      if (assignment.role_name !== roleName) return assignment;
+      if (assignmentType === 'fallback_audio') {
+        return { ...assignment, assignment_type: 'fallback_audio' as const, user_id: null };
+      }
+      const currentlyMine = assignment.user_id === bundle.viewer_user_id;
+      return {
+        ...assignment,
+        assignment_type: 'human' as const,
+        user_id: currentlyMine ? null : null,
+      };
+    });
+    await saveCastPlan(nextAssignments);
+  };
+
+  const assignRoleToViewer = async (roleName: string) => {
+    const nextAssignments: AuditionDraftAssignment[] = draftAssignments.map((assignment) =>
+      assignment.role_name === roleName
+        ? {
+            ...assignment,
+            assignment_type: 'human' as const,
+            user_id: assignment.user_id === bundle.viewer_user_id ? null : bundle.viewer_user_id,
+          }
+        : assignment,
+    );
+    await saveCastPlan(nextAssignments);
+  };
+
+  const startTake = async () => {
+    setStartingTake(true);
+    setError('');
+    const res = await fetch(`/api/audition-rooms/${roomCode}/takes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assignments: draftAssignments }),
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(payload.error || 'Could not start take');
+      setStartingTake(false);
+      return;
+    }
+    setStartingTake(false);
+    window.location.href = `/rooms/auditions/${roomCode}/takes/${payload.take.id}`;
+  };
+
+  const myAssignments = bundle.activeTakeAssignments.filter(
+    (assignment) => assignment.user_id === bundle.viewer_user_id,
+  );
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-10 space-y-8">
@@ -89,6 +194,11 @@ export function AuditionRoomView({
           <p className="mt-2 text-sm text-muted">
             Room code {bundle.room.room_code} • {bundle.viewer_role.replace(/_/g, ' ')} • {bundle.room.status}
           </p>
+          {bundle.relationship_label && (
+            <p className="mt-2 text-xs uppercase tracking-wide text-muted">
+              Relation: {bundle.relationship_label}
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap gap-3">
           <button
@@ -126,7 +236,7 @@ export function AuditionRoomView({
               {bundle.scenes.map((scene) => (
                 <button
                   key={scene.id}
-                  onClick={() => bundle.can_control_room && updateRoom({ active_scene_id: scene.id })}
+                  onClick={() => bundle.can_control_room && updateRoom({ active_scene_id: scene.id, clear_active_take: true })}
                   className={`w-full rounded-2xl border px-4 py-3 text-left transition-colors ${
                     scene.id === activeScene?.id
                       ? 'border-gold/40 bg-gold/10'
@@ -166,12 +276,12 @@ export function AuditionRoomView({
               <div>
                 <h2 className="text-lg font-semibold">{activeScene?.label ?? 'No active scene'}</h2>
                 <p className="mt-1 text-sm text-muted">
-                  Only the active scene is shown in the room. Guests do not receive library access outside this session.
+                  Cast the room for this scene, then start a take so each participant can record their assigned lines.
                 </p>
               </div>
-              {bundle.targetRole && (
+              {readiness && (
                 <div className="rounded-full border border-gold/30 px-4 py-2 text-xs text-gold">
-                  Target role: {bundle.targetRole.selected_role_name}
+                  {readiness.level.replace(/_/g, ' ')}
                 </div>
               )}
             </div>
@@ -198,6 +308,98 @@ export function AuditionRoomView({
               </>
             )}
           </div>
+
+          <div className="rounded-3xl border border-border bg-surface p-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold">Cast This Take</h2>
+                <p className="mt-1 text-sm text-muted">
+                  Assign human performers or leave a role on fallback cue coverage. One participant may hold multiple roles.
+                </p>
+              </div>
+              {savingCast && <div className="text-xs text-muted">Saving cast...</div>}
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {draftAssignments.map((assignment) => (
+                <div key={assignment.role_name} className="rounded-2xl border border-border bg-background/40 px-4 py-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div className="font-medium">{assignment.role_name}</div>
+                      <div className="mt-1 text-xs uppercase tracking-wide text-muted">
+                        {assignmentLabel(assignment, bundle.participants)}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => assignRoleToViewer(assignment.role_name)}
+                        className="rounded-xl border border-gold/30 px-3 py-2 text-xs text-gold hover:bg-gold/10"
+                      >
+                        {assignment.user_id ? 'Unclaim' : 'Claim me'}
+                      </button>
+                      <button
+                        onClick={() => claimRole(assignment.role_name, 'fallback_audio')}
+                        className="rounded-xl border border-border px-3 py-2 text-xs text-muted hover:text-foreground"
+                      >
+                        Fallback cue
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <button
+              onClick={startTake}
+              disabled={!readiness?.level1Ready || startingTake || draftAssignments.length === 0}
+              className="mt-6 rounded-xl bg-gold px-5 py-3 text-sm font-semibold text-black hover:bg-gold-dim disabled:opacity-50"
+            >
+              {startingTake ? 'Starting take...' : 'Start new take'}
+            </button>
+          </div>
+
+          {(bundle.activeTake || bundle.room.active_take_id) && (
+            <div className="rounded-3xl border border-border bg-surface p-6">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold">Active Take</h2>
+                  <p className="mt-1 text-sm text-muted">
+                    Continue recording your assigned roles or review the take from the scene page.
+                  </p>
+                </div>
+                {bundle.activeTake && (
+                  <span className="rounded-full border border-gold/30 px-4 py-2 text-xs text-gold">
+                    {bundle.activeTake.status}
+                  </span>
+                )}
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                {(bundle.activeTakeAssignments.length > 0 ? bundle.activeTakeAssignments : myAssignments).map((assignment) => (
+                  <span key={assignment.id} className="rounded-full border border-border px-3 py-1 text-xs text-muted">
+                    {assignment.role_name} • {assignment.assignment_type === 'fallback_audio' ? 'fallback' : 'human'}
+                  </span>
+                ))}
+              </div>
+
+              {bundle.activeTake && (
+                <div className="mt-5 flex flex-wrap gap-3">
+                  <Link
+                    href={`/rooms/auditions/${roomCode}/takes/${bundle.activeTake.id}`}
+                    className="rounded-xl border border-gold/30 px-4 py-3 text-sm text-gold hover:bg-gold/10"
+                  >
+                    Record my lines
+                  </Link>
+                  <Link
+                    href={`/pro/auditions/${bundle.script.id}/scenes/${bundle.activeTake.audition_scene_id}`}
+                    className="rounded-xl border border-border px-4 py-3 text-sm text-muted hover:text-foreground"
+                  >
+                    Review this scene
+                  </Link>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </section>
     </div>

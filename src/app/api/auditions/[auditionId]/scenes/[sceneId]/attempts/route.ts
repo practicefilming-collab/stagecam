@@ -1,4 +1,4 @@
-import { canAccessAuditionScript, getAuditionViewerContext } from '@/lib/auditions/auth';
+import { getAuditionScriptAccessContext, getAuditionViewerContext } from '@/lib/auditions/auth';
 import { getAuditionDetail, listAttemptsForScene } from '@/lib/auditions/data';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { NextResponse } from 'next/server';
@@ -13,16 +13,17 @@ export async function GET(
 
   const detail = await getAuditionDetail(auditionId);
   if (!detail) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  if (!canAccessAuditionScript(viewer, detail.script)) {
+  const access = await getAuditionScriptAccessContext({ viewer, script: detail.script });
+  if (!access.canAccess) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
   const { searchParams } = new URL(request.url);
-  const includeAll = searchParams.get('all') === '1' && viewer.profile.is_admin;
+  const includeAll = searchParams.get('all') === '1' && access.viewerRole === 'admin';
   const attempts = await listAttemptsForScene({
     auditionId,
     sceneId,
-    userId: includeAll ? undefined : detail.script.assigned_rehearser_user_id,
+    userId: includeAll || access.viewerRole === 'assigned_rehearser' ? undefined : viewer.userId,
   });
   return NextResponse.json(attempts);
 }
@@ -37,7 +38,8 @@ export async function POST(
 
   const detail = await getAuditionDetail(auditionId);
   if (!detail) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  if (!canAccessAuditionScript(viewer, detail.script)) {
+  const access = await getAuditionScriptAccessContext({ viewer, script: detail.script });
+  if (!access.canAccess) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -53,7 +55,7 @@ export async function POST(
     return NextResponse.json({ error: 'practice_mode, progression_step, and selected_role_name are required' }, { status: 400 });
   }
 
-  const ownershipType = detail.script.assigned_rehearser_user_id === viewer.userId
+  const ownershipType = access.viewerRole === 'assigned_rehearser'
     ? 'assigned_rehearser'
     : 'guest_participant';
 

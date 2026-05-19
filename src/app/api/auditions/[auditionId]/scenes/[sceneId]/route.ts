@@ -19,6 +19,9 @@ export async function PATCH(
   if (typeof body.scene_text === 'string') updates.scene_text = body.scene_text.trim();
   if (body.source_page_ref !== undefined) updates.source_page_ref = String(body.source_page_ref || '').trim() || null;
   if (body.is_active !== undefined) updates.is_active = Boolean(body.is_active);
+  if (body.processing_metadata && typeof body.processing_metadata === 'object') {
+    updates.processing_metadata = body.processing_metadata;
+  }
 
   const admin = createAdminClient();
   const { data, error } = await admin

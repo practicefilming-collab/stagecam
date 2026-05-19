@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { AuditionScript } from '@/lib/types';
+import type { AuditionScriptListItem } from '@/lib/auditions/data';
 
 interface UploadUser {
   id: string;
@@ -18,7 +18,7 @@ export function AuditionsDashboard({
   selfUserId,
   uploadUsers,
 }: {
-  initialScripts: AuditionScript[];
+  initialScripts: AuditionScriptListItem[];
   canManage: boolean;
   selfUserId: string;
   uploadUsers: UploadUser[];
@@ -55,6 +55,7 @@ export function AuditionsDashboard({
     }
     return counts;
   }, [scripts]);
+  const queueCount = (statusCounts.get('uploaded') ?? 0) + (statusCounts.get('processing') ?? 0);
 
   const handleUpload = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -84,7 +85,11 @@ export function AuditionsDashboard({
       return;
     }
 
-    setScripts((prev) => [payload, ...prev]);
+    const assignedRehearser = assignableUsers.find((user) => user.id === (canManage ? assignedUserId : selfUserId)) ?? null;
+    setScripts((prev) => [{
+      ...payload,
+      assignedRehearser,
+    }, ...prev]);
     setTitle('');
     setSourceLabel('');
     setFile(null);
@@ -101,11 +106,15 @@ export function AuditionsDashboard({
             <p className="text-xs uppercase tracking-[0.3em] text-gold/80">Stagecam Pro</p>
             <h1 className="mt-2 text-3xl font-bold text-gold">Auditions</h1>
             <p className="mt-2 max-w-2xl text-sm text-muted">
-              Private assigned-script rehearsal for confidential audition material. Scenes, target role,
-              progress, and room hosting stay scoped to the assigned rehearser and admins.
+              Private assigned-script rehearsal for confidential audition material. The work now moves through a readiness queue before scenes become room-ready and take-ready.
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-3 text-sm md:min-w-80">
+          <div className="grid grid-cols-2 gap-3 text-sm md:min-w-96">
+            <div className="rounded-2xl border border-gold/20 bg-gold/5 px-4 py-3">
+              <div className="text-xs uppercase tracking-wide text-gold/80">Approval Queue</div>
+              <div className="mt-1 text-xl font-semibold">{queueCount}</div>
+              <div className="mt-1 text-xs text-muted">Uploaded or in prep</div>
+            </div>
             {['uploaded', 'processing', 'ready', 'archived'].map((status) => (
               <div key={status} className="rounded-2xl border border-border bg-background/40 px-4 py-3">
                 <div className="text-xs uppercase tracking-wide text-muted">{status}</div>
@@ -200,7 +209,14 @@ export function AuditionsDashboard({
                   <div>
                     <h3 className="font-medium text-foreground">{script.title}</h3>
                     <p className="mt-1 text-sm text-muted">{script.source_label}</p>
-                    <p className="mt-2 text-xs uppercase tracking-wide text-gold/80">{script.status}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className="text-xs uppercase tracking-wide text-gold/80">{script.status}</span>
+                      {script.assignedRehearser && (
+                        <span className="rounded-full border border-border px-2 py-1 text-[11px] text-muted">
+                          Assigned: {script.assignedRehearser.display_name}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <span className="text-xs text-muted">{new Date(script.created_at).toLocaleDateString()}</span>
                 </div>

@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { AuditionRoomView } from '@/components/auditions/room';
-import { getAuditionViewerContext } from '@/lib/auditions/auth';
+import { getAuditionScriptAccessContext, getAuditionViewerContext } from '@/lib/auditions/auth';
 import { getAuditionRoomBundle } from '@/lib/auditions/room-data';
 
 export default async function AuditionRoomPage({
@@ -15,8 +15,9 @@ export default async function AuditionRoomPage({
   const bundle = await getAuditionRoomBundle(roomCode);
   if (!bundle) redirect('/menu');
 
-  const isAssignedRehearser = bundle.script.assigned_rehearser_user_id === viewer.userId;
-  const viewerRole = viewer.profile.is_admin
+  const access = await getAuditionScriptAccessContext({ viewer, script: bundle.script });
+  const isAssignedRehearser = access.viewerRole === 'assigned_rehearser';
+  const viewerRole = access.viewerRole === 'admin'
     ? 'admin'
     : bundle.room.host_user_id === viewer.userId
       ? 'host'
@@ -29,8 +30,10 @@ export default async function AuditionRoomPage({
       roomCode={roomCode}
       initialBundle={{
         ...bundle,
+        viewer_user_id: viewer.userId,
         viewer_role: viewerRole,
-        can_control_room: viewer.profile.is_admin || bundle.room.host_user_id === viewer.userId || isAssignedRehearser,
+        relationship_label: access.relationshipLabel,
+        can_control_room: access.canControlRoom || bundle.room.host_user_id === viewer.userId || isAssignedRehearser,
       }}
     />
   );

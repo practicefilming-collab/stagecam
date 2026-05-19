@@ -1,4 +1,4 @@
-import { canAccessAuditionsMode, getAuditionViewerContext } from '@/lib/auditions/auth';
+import { canAccessAuditionsMode, getAuditionViewerContext, syncAdminAuditionRelationships } from '@/lib/auditions/auth';
 import { isAllowedAuditionFile, sanitizeStorageFilename } from '@/lib/auditions/files';
 import { AUDITION_STORAGE_BUCKET } from '@/lib/auditions/constants';
 import { listAuditionScriptsForViewer } from '@/lib/auditions/data';
@@ -103,6 +103,12 @@ export async function POST(request: Request) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  await syncAdminAuditionRelationships({
+    admin,
+    auditionScriptId: data.id,
+    assignedRehearserUserId,
+  });
 
   return NextResponse.json(data, { status: 201 });
 }

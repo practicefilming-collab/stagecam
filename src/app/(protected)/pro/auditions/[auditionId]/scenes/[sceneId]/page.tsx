@@ -1,7 +1,12 @@
 import { redirect } from 'next/navigation';
 import { AuditionSceneView } from '@/components/auditions/scene-view';
-import { canAccessAuditionScript, canAccessAuditionsMode, getAuditionViewerContext } from '@/lib/auditions/auth';
+import {
+  canAccessAuditionsMode,
+  getAuditionScriptAccessContext,
+  getAuditionViewerContext,
+} from '@/lib/auditions/auth';
 import { getAuditionDetail, listAttemptsForScene } from '@/lib/auditions/data';
+import { listTakesForScene } from '@/lib/auditions/data';
 
 export default async function AuditionScenePage({
   params,
@@ -15,22 +20,29 @@ export default async function AuditionScenePage({
 
   const detail = await getAuditionDetail(auditionId);
   if (!detail) redirect('/pro/auditions');
-  if (!canAccessAuditionScript(viewer, detail.script)) redirect('/pro/auditions');
+  const access = await getAuditionScriptAccessContext({ viewer, script: detail.script });
+  if (!access.canAccess) redirect('/pro/auditions');
 
   const scene = detail.scenes.find((item) => item.id === sceneId);
   if (!scene) redirect(`/pro/auditions/${auditionId}`);
 
-  const attempts = await listAttemptsForScene({
-    auditionId,
-    sceneId,
-    userId: viewer.profile.is_admin ? undefined : detail.script.assigned_rehearser_user_id,
-  });
+  const [attempts, takes] = await Promise.all([
+    listAttemptsForScene({
+      auditionId,
+      sceneId,
+      userId: access.viewerRole === 'assigned_rehearser' || access.viewerRole === 'admin'
+        ? undefined
+        : viewer.userId,
+    }),
+    listTakesForScene({ sceneId }),
+  ]);
 
   return (
     <AuditionSceneView
       detail={detail}
       scene={scene}
       attempts={attempts}
+      takes={takes}
       viewerUserId={viewer.userId}
       canManage={viewer.profile.is_admin}
     />

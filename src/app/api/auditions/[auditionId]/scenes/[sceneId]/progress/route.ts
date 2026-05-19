@@ -1,4 +1,4 @@
-import { canAccessAuditionScript, getAuditionViewerContext } from '@/lib/auditions/auth';
+import { getAuditionScriptAccessContext, getAuditionViewerContext } from '@/lib/auditions/auth';
 import { getAuditionDetail } from '@/lib/auditions/data';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { NextResponse } from 'next/server';
@@ -13,10 +13,11 @@ export async function POST(
 
   const detail = await getAuditionDetail(auditionId);
   if (!detail) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  if (!canAccessAuditionScript(viewer, detail.script)) {
+  const access = await getAuditionScriptAccessContext({ viewer, script: detail.script });
+  if (!access.canAccess) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
-  if (!viewer.profile.is_admin && detail.script.assigned_rehearser_user_id !== viewer.userId) {
+  if (access.viewerRole !== 'admin' && access.viewerRole !== 'assigned_rehearser') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
