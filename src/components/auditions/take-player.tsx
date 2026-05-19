@@ -217,7 +217,9 @@ export function AuditionTakePlayer({
   }
 
   const progress = items.length > 0 ? ((currentIdx + 1) / items.length) * 100 : 0;
-  const takeLabel = data.take.title ?? `Rehearsal ${data.take.id.slice(0, 8)}`;
+  const takeLabel = data.take.rehearsalNumber
+    ? `Rehearsal #${data.take.rehearsalNumber}`
+    : data.take.title ?? `Rehearsal ${data.take.id.slice(0, 8)}`;
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-8">

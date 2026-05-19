@@ -179,31 +179,34 @@ export function AuditionSceneView({
               )}
             </div>
             <div className="mt-4 space-y-3">
-              {takes.map((take) => (
-                <Link
-                  key={take.id}
-                  href={`/pro/auditions/${detail.script.id}/scenes/${scene.id}/takes/${take.id}`}
-                  className="block rounded-2xl border border-border bg-background/40 px-4 py-4 transition-colors hover:border-gold/20 hover:bg-gold/5"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-medium">{take.title ?? `Rehearsal ${take.id.slice(0, 8)}`}</div>
-                      <div className="mt-1 text-xs uppercase tracking-wide text-gold/80">{take.status}</div>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {take.assignments.map((assignment) => (
-                          <span key={assignment.id} className="rounded-full border border-border px-2 py-1 text-[11px] text-muted">
-                            {assignment.role_name} • {assignment.assignment_type === 'fallback_audio' ? 'fallback' : 'human'}
-                          </span>
-                        ))}
+              {takes.map((take, index) => {
+                const rehearsalNumber = takes.length - index;
+                return (
+                  <Link
+                    key={take.id}
+                    href={`/pro/auditions/${detail.script.id}/scenes/${scene.id}/takes/${take.id}`}
+                    className="block rounded-2xl border border-border bg-background/40 px-4 py-4 transition-colors hover:border-gold/20 hover:bg-gold/5"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-medium">{`Rehearsal #${rehearsalNumber}`}</div>
+                        <div className="mt-1 text-xs uppercase tracking-wide text-gold/80">{take.status}</div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {take.assignments.map((assignment) => (
+                            <span key={assignment.id} className="rounded-full border border-border px-2 py-1 text-[11px] text-muted">
+                              {assignment.role_name} • {assignment.assignment_type === 'fallback_audio' ? 'fallback' : 'human'}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="text-right text-xs text-muted">
+                        <div>{new Date(take.created_at).toLocaleString()}</div>
+                        <div className="mt-1">{take.clipCount} clips</div>
                       </div>
                     </div>
-                    <div className="text-right text-xs text-muted">
-                      <div>{new Date(take.created_at).toLocaleString()}</div>
-                      <div className="mt-1">{take.clipCount} clips</div>
-                    </div>
-                  </div>
-                </Link>
-              ))}
+                  </Link>
+                );
+              })}
               {takes.length === 0 && (
                 <p className="rounded-2xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted">
                   No rehearsals have been recorded for this scene yet.

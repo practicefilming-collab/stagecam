@@ -28,7 +28,9 @@ export interface AuditionTakePlaybackItem {
 }
 
 export interface AuditionTakePlaybackData {
-  take: Pick<AuditionTake, 'id' | 'title' | 'status' | 'created_at' | 'completed_at'>;
+  take: Pick<AuditionTake, 'id' | 'title' | 'status' | 'created_at' | 'completed_at'> & {
+    rehearsalNumber: number | null;
+  };
   scene: {
     id: string;
     label: string;
@@ -60,7 +62,7 @@ export async function buildAuditionTakePlaybackData(takeId: string): Promise<Aud
 
   if (!take) return null;
 
-  const [{ data: scene }, { data: script }, { data: assignments }, { data: clips }, { data: linkedScript }, { data: participants }] = await Promise.all([
+  const [{ data: scene }, { data: script }, { data: assignments }, { data: clips }, { data: linkedScript }, { data: participants }, { data: sceneTakes }] = await Promise.all([
     admin
       .from('audition_scenes')
       .select('id, label, order_index, source_page_ref, scene_text')
@@ -93,6 +95,11 @@ export async function buildAuditionTakePlaybackData(takeId: string): Promise<Aud
           .eq('room_session_id', take.room_session_id)
           .order('joined_at')
       : Promise.resolve({ data: [] as never[], error: null }),
+    admin
+      .from('audition_takes')
+      .select('id')
+      .eq('audition_scene_id', take.audition_scene_id)
+      .order('created_at', { ascending: true }),
   ]);
 
   if (!scene || !script) return null;
@@ -158,6 +165,8 @@ export async function buildAuditionTakePlaybackData(takeId: string): Promise<Aud
     };
   });
 
+  const rehearsalNumber = ((sceneTakes ?? []) as Array<{ id: string }>).findIndex((row) => row.id === takeId) + 1;
+
   return {
     take: {
       id: take.id,
@@ -165,6 +174,7 @@ export async function buildAuditionTakePlaybackData(takeId: string): Promise<Aud
       status: take.status,
       created_at: take.created_at,
       completed_at: take.completed_at,
+      rehearsalNumber: rehearsalNumber > 0 ? rehearsalNumber : null,
     },
     scene: {
       id: scene.id,

@@ -37,6 +37,11 @@ export async function POST(
   });
 
   const admin = createAdminClient();
+  const { count: existingTakeCount } = await admin
+    .from('audition_takes')
+    .select('id', { count: 'exact', head: true })
+    .eq('audition_scene_id', activeScene.id);
+  const rehearsalNumber = (existingTakeCount ?? 0) + 1;
   const { data: take, error } = await admin
     .from('audition_takes')
     .insert({
@@ -45,7 +50,7 @@ export async function POST(
       room_session_id: bundle.room.id,
       status: 'recording',
       started_by_user_id: viewer.userId,
-      title: String(body.title ?? '').trim() || `${activeScene.label} Take ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`,
+      title: String(body.title ?? '').trim() || `Rehearsal #${rehearsalNumber}`,
       notes: String(body.notes ?? '').trim() || null,
       started_at: new Date().toISOString(),
     })
