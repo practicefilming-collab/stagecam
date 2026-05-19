@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { AuditionDetail } from '@/lib/auditions/data';
-import { summarizeAuditionSceneCard } from '@/lib/auditions/data';
+import { summarizeSceneReadiness } from '@/lib/auditions/scene-runtime';
 import type { AuditionProgressionStep } from '@/lib/types';
 import { getAuditionStatusDescription, getAuditionStatusLabel } from '@/lib/auditions/status';
 import { AuditionProcessingPanel } from './processing-panel';
@@ -327,7 +327,7 @@ export function AuditionDetailView({
               {detail.scenes.map((scene, index) => (
                 <div key={scene.id} className="rounded-2xl border border-border bg-background/40 p-4">
                   {(() => {
-                    const readiness = summarizeAuditionSceneCard(scene);
+                    const readiness = summarizeSceneReadiness(scene, scene.roles.map((role) => role.name));
                     return (
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div>

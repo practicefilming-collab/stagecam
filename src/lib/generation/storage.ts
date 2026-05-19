@@ -1,7 +1,6 @@
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { r2, R2_BUCKET } from '@/lib/r2';
 import { randomUUID } from 'crypto';
-import { promises as fs } from 'fs';
 import type { GenerationPersistedArtifact, GenerationStoragePlan } from './types';
 
 export interface SyntheticAudioPayload {
@@ -136,6 +135,7 @@ export function generateSyntheticArtifactId(): string {
 }
 
 export async function readFileBytes(filePath: string): Promise<Uint8Array> {
+  const fs = await import('fs/promises');
   const buffer = await fs.readFile(filePath);
   return new Uint8Array(buffer);
 }
