@@ -1,7 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { computeRollCalls } from '@/lib/matchmaking/roll-call';
 import type { AuditionScript, Script } from '@/lib/types';
+import { XAI_TTS_VOICES, formatVoicePersonaLabel } from '@/lib/generation/voices';
 import { extractZipEntry } from './zip';
+import { parseAuditionSceneRuntimeLines } from './scene-runtime';
 
 type PreviewBlock =
   | { kind: 'action'; text: string; isSystem: boolean }
@@ -229,6 +231,22 @@ function buildRoleBriefs(): AuditionProcessingRoleBrief[] {
       emphasisGuidance: 'Keep motivation and hesitation specific so the growth arc stays believable.',
     },
   ];
+}
+
+const DEFAULT_AUDITION_ROLE_VOICES = XAI_TTS_VOICES.filter((voiceId) => voiceId !== 'leo');
+
+function buildRoleBriefFromPreparedScene(roleName: string, index: number): AuditionProcessingRoleBrief {
+  const voiceId = DEFAULT_AUDITION_ROLE_VOICES[index % DEFAULT_AUDITION_ROLE_VOICES.length];
+  return {
+    roleName,
+    voiceId,
+    voiceLabel: formatVoicePersonaLabel(voiceId) ?? voiceId,
+    rationale: `Baseline Grok voice assigned to ${roleName} for audition fallback coverage.`,
+    defaultTone: 'Conversational and grounded.',
+    defaultPacing: 'Natural scene pacing.',
+    relationshipStance: `Supports ${roleName}'s role in the audition scene.`,
+    emphasisGuidance: 'Keep the line readable and emotionally clear without overperforming.',
+  };
 }
 
 function buildStoredConfig(preview: AuditionProcessingPreview): AuditionProcessingStoredConfig {
@@ -640,6 +658,110 @@ async function upsertHiddenScript(input: {
   }
 
   return script as Script;
+}
+
+export function buildPreviewFromPreparedAudition(input: {
+  audition: AuditionScript;
+  scenes: Array<{
+    id: string;
+    label: string;
+    order_index: number;
+    source_page_ref: string | null;
+    scene_text: string;
+    roles: Array<{ name: string }>;
+  }>;
+}): AuditionProcessingPreview {
+  const roleNames = [...new Set(input.scenes.flatMap((scene) => scene.roles.map((role) => role.name.trim())).filter(Boolean))];
+  const previewScenes: AuditionProcessingScenePreview[] = input.scenes.map((scene) => {
+    const runtimeLines = parseAuditionSceneRuntimeLines(scene.scene_text);
+    const blocks: PreviewBlock[] = runtimeLines.map((line) =>
+      line.kind === 'dialogue' && line.roleName
+        ? { kind: 'dialogue', speaker: line.roleName, text: line.text }
+        : { kind: 'action', text: line.text, isSystem: true },
+    );
+
+    return {
+      orderIndex: scene.order_index,
+      scenarioNumber: scene.order_index,
+      heading: scene.label,
+      label: scene.label,
+      sourcePageRef: scene.source_page_ref ?? `Scene ${scene.order_index}`,
+      sceneText: scene.scene_text,
+      roleNames: scene.roles.map((role) => role.name),
+      sceneObjective: 'Prepared manually from audition scene text.',
+      dramaticPurpose: 'Support end-to-end audition rehearsal and take playback.',
+      emotionalTemperature: 'Derived from source material.',
+      subtext: 'Captured directly from the prepared audition scene.',
+      rehearsalEmphasis: 'Preserve continuity for room playback, fallback cues, and take review.',
+      blocks,
+      ambiguityNotes: [],
+    };
+  });
+
+  return {
+    auditionId: input.audition.id,
+    title: input.audition.title,
+    sourceLabel: input.audition.source_label,
+    originalFilename: input.audition.original_filename,
+    extractedText: '',
+    roleNames,
+    scenes: previewScenes,
+    roleBriefs: roleNames.map((roleName, index) => buildRoleBriefFromPreparedScene(roleName, index)),
+    cleanupLog: ['Bootstrapped internal script from prepared audition scene data.'],
+    ambiguityLog: [],
+    internalScript: {
+      title: `${input.audition.title} (Audition Internal)`,
+      slug: `audition-${slugify(input.audition.title)}-${input.audition.id.slice(0, 8)}`,
+    },
+  };
+}
+
+export async function ensureAuditionInternalScriptFromPreparedScenes(input: {
+  admin: SupabaseClient;
+  audition: AuditionScript;
+  scenes: Array<{
+    id: string;
+    label: string;
+    order_index: number;
+    source_page_ref: string | null;
+    scene_text: string;
+    roles: Array<{ name: string }>;
+  }>;
+  processorUserId: string;
+}): Promise<{ linkedScript: Script; preview: AuditionProcessingPreview }> {
+  const preview = sanitizeAuditionProcessingPreview(buildPreviewFromPreparedAudition({
+    audition: input.audition,
+    scenes: input.scenes,
+  }));
+  const linkedScript = await upsertHiddenScript({
+    admin: input.admin,
+    audition: input.audition,
+    preview,
+  });
+
+  await ensureAuditionAiProfiles({
+    admin: input.admin,
+    scriptId: linkedScript.id,
+    roleBriefs: preview.roleBriefs,
+  });
+
+  await input.admin
+    .from('audition_scripts')
+    .update({
+      processed_by_admin_id: input.processorUserId,
+      processed_at: new Date().toISOString(),
+      processing_notes: {
+        ...(input.audition.processing_notes ?? {}),
+        appliedConfig: buildStoredConfig(preview),
+        linkedScriptId: linkedScript.id,
+      },
+    })
+    .eq('id', input.audition.id);
+
+  return {
+    linkedScript: linkedScript as Script,
+    preview,
+  };
 }
 
 export async function ensureAuditionAiProfiles(input: {

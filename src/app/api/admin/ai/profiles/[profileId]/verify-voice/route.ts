@@ -20,7 +20,7 @@ export async function POST(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const apiKey = process.env.XAI_API_KEY;
+  const apiKey = process.env.XAI_API_KEY?.trim();
   if (!apiKey) {
     return NextResponse.json({ error: 'Missing XAI_API_KEY' }, { status: 500 });
   }

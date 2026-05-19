@@ -13,9 +13,10 @@ import type {
   GenerationSourceLine,
 } from './types';
 
-type ExistingRecording = {
+export type ExistingRecording = {
   id: string;
   chunk_id: string;
+  ai_profile_id?: string | null;
   video_url: string;
   format: string | null;
   line_generation_record_id: string | null;
@@ -181,7 +182,7 @@ async function loadAiProfile(
   return profile;
 }
 
-async function listExistingGeneratedRecordings(
+export async function listExistingGeneratedRecordings(
   admin: SupabaseClient,
   aiProfileId: string,
   chunkIds: string[]
@@ -209,7 +210,7 @@ async function listExistingGeneratedRecordings(
   return map;
 }
 
-async function upsertLineGenerationRecord(
+export async function upsertLineGenerationRecord(
   admin: SupabaseClient,
   payload: Omit<LineGenerationRecord, 'id' | 'created_at' | 'updated_at'>
 ): Promise<string> {
@@ -226,7 +227,7 @@ async function upsertLineGenerationRecord(
   return data.id as string;
 }
 
-async function insertGeneratedRecording(input: {
+export async function insertGeneratedRecording(input: {
   admin: SupabaseClient;
   chunkId: string;
   aiProfileId: string;
@@ -522,7 +523,7 @@ export async function executeSceneGenerationJob(input: {
   admin: SupabaseClient;
   jobId: string;
 }): Promise<SceneJobExecutionResult> {
-  const apiKey = process.env.XAI_API_KEY;
+  const apiKey = process.env.XAI_API_KEY?.trim();
   if (!apiKey) {
     throw new Error('Missing XAI_API_KEY');
   }

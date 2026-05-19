@@ -2,67 +2,88 @@ import { randomUUID } from 'crypto';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type {
-  AuditionLevel1AudioAsset,
-  AuditionScene,
-  AuditionScript,
-} from '@/lib/types';
-import { persistSyntheticAudioToR2 } from '@/lib/generation/storage';
-import type { GenerationLineInterpretation, GenerationSourceLine } from '@/lib/generation/types';
+import { r2, R2_BUCKET } from '@/lib/r2';
+import { buildSyntheticAudioPlan, persistSyntheticAudioToR2 } from '@/lib/generation/storage';
 import { formatVoicePersonaLabel, normalizeVoicePersonaId } from '@/lib/generation/voices';
 import { synthesizeWithXaiTts } from '@/lib/generation/xai';
-import { r2, R2_BUCKET } from '@/lib/r2';
-import type { AuditionProcessingStoredConfig, AuditionProcessingRoleBrief } from './processing';
+import { buildDefaultInterpretation } from '@/lib/generation/runner';
+import { loadGenerationSourceLines } from '@/lib/generation/source';
+import {
+  insertGeneratedRecording,
+  listExistingGeneratedRecordings,
+  upsertLineGenerationRecord,
+  type ExistingRecording,
+} from '@/lib/generation/execute';
+import type {
+  AIProfile,
+  AuditionScene,
+  AuditionScript,
+  Script,
+} from '@/lib/types';
+import {
+  ensureAuditionInternalScriptFromPreparedScenes,
+  type AuditionProcessingStoredConfig,
+  type AuditionProcessingRoleBrief,
+} from './processing';
 import { parseAuditionSceneRuntimeLines } from './scene-runtime';
 
-const LEVEL1_NARRATOR_VOICE_ID = 'leo';
+const NARRATOR_PROFILE_NAME = 'Narrator';
+const NARRATOR_VOICE_ID = 'leo';
 
-function buildLevel1StorageKey(input: {
-  auditionId: string;
-  sceneId: string;
-  sequenceIndex: number;
-  voiceId: string;
-  fileExtension: string;
-}) {
-  const ext = input.fileExtension.replace(/^\./, '') || 'mp3';
-  const sequence = String(input.sequenceIndex).padStart(3, '0');
-  return `auditions/${input.auditionId}/level1/${input.sceneId}/${sequence}-${input.voiceId}.${ext}`;
-}
+type SceneRow = {
+  id: string;
+  scene_number: number;
+  scene_heading: string | null;
+  processing_metadata: Record<string, unknown> | null;
+};
 
-function buildLevel1Interpretation(roleName: string | null): GenerationLineInterpretation {
-  return {
-    interpretationSource: 'fallback_heuristic',
-    pauseBeforeMs: roleName ? 120 : 0,
-    pauseAfterMs: roleName ? 120 : 80,
-    emotionTags: roleName ? ['calm'] : ['clear'],
-    deliveryNotes: [roleName ? 'Baseline audition cue read.' : 'Narrate the stage direction clearly and neutrally.'],
-    continuityNotes: [],
-    emphasisNotes: [],
-    promptSummary: roleName ? 'Baseline character cue audio' : 'Narrator cue audio',
-  };
-}
+type ChunkRow = {
+  id: string;
+  scene_id: string;
+  chunk_in_scene: number;
+  chunk_index: number;
+  type: 'scene_heading' | 'action' | 'dialogue' | 'transition';
+  character: string | null;
+  tts_text: string | null;
+  chunk_text: string;
+  is_system: boolean | null;
+};
 
-function buildLevel1SourceLine(input: {
-  auditionId: string;
-  scene: Pick<AuditionScene, 'id' | 'label' | 'scene_text' | 'processing_metadata'>;
+type AuditionLineBridge = {
+  auditionSceneId: string;
+  auditionSceneOrder: number;
   sequenceIndex: number;
   roleName: string | null;
-  text: string;
-  type: 'dialogue' | 'cue';
-}): GenerationSourceLine {
+  lineText: string;
+  sharedSceneId: string;
+  chunkId: string;
+  aiProfileId: string;
+  aiProfileName: string;
+};
+
+type CoverageSummary = {
+  required_line_count: number;
+  ready_line_count: number;
+  failed_line_count: number;
+  latest_generated_at: string | null;
+};
+
+function normalizeText(value: string | null | undefined) {
+  return (value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function buildNarratorProfilePayload(scriptId: string) {
   return {
-    id: `${input.scene.id}:${input.sequenceIndex}`,
-    scriptId: input.auditionId,
-    sceneId: input.scene.id,
-    sceneHeading: input.scene.label,
-    sceneMetadata: input.scene.processing_metadata ?? null,
-    chunkIndex: input.sequenceIndex,
-    chunkInScene: input.sequenceIndex + 1,
-    type: input.type === 'dialogue' ? 'dialogue' : 'action',
-    character: input.roleName,
-    ttsText: input.text,
-    chunkText: input.text,
-    isSystem: input.type === 'cue',
+    script_id: scriptId,
+    display_name: NARRATOR_PROFILE_NAME,
+    status: 'active',
+    platform: 'Grok' as const,
+    voice_persona_id: NARRATOR_VOICE_ID,
+    voice_persona_label: formatVoicePersonaLabel(NARRATOR_VOICE_ID),
+    metadata: {
+      systemProfile: true,
+      purpose: 'audition_fallback_narration',
+    },
   };
 }
 
@@ -72,60 +93,179 @@ function getStoredRoleBriefs(audition: Pick<AuditionScript, 'processing_notes'>)
   return (((config as AuditionProcessingStoredConfig).roleBriefs) ?? []).filter(Boolean);
 }
 
-function getRequiredLineCount(scene: Pick<AuditionScene, 'scene_text'>) {
-  return parseAuditionSceneRuntimeLines(scene.scene_text).length;
+async function getLinkedScript(admin: SupabaseClient, auditionId: string) {
+  const { data } = await admin
+    .from('scripts')
+    .select('id, title, slug, is_internal, source_audition_script_id')
+    .eq('source_audition_script_id', auditionId)
+    .maybeSingle();
+
+  return (data as Pick<Script, 'id' | 'title' | 'slug' | 'is_internal' | 'source_audition_script_id'> | null) ?? null;
 }
 
-export function mergeLevel1AudioMetadata<T extends Pick<AuditionScene, 'id' | 'scene_text' | 'processing_metadata'>>(
-  scenes: T[],
-  assets: AuditionLevel1AudioAsset[],
-): T[] {
-  const assetsByScene = new Map<string, AuditionLevel1AudioAsset[]>();
-  for (const asset of assets) {
-    const list = assetsByScene.get(asset.audition_scene_id) ?? [];
-    list.push(asset);
-    assetsByScene.set(asset.audition_scene_id, list);
+async function ensureNarratorProfile(admin: SupabaseClient, scriptId: string): Promise<AIProfile> {
+  const payload = buildNarratorProfilePayload(scriptId);
+  const { data, error } = await admin
+    .from('ai_profiles')
+    .upsert(payload, { onConflict: 'script_id,display_name' })
+    .select('id, script_id, display_name, status, platform, voice_persona_id, voice_persona_label, metadata, created_at, updated_at')
+    .single();
+
+  if (error || !data) {
+    throw new Error(error?.message ?? 'Failed to ensure narrator voice profile');
   }
 
-  return scenes.map((scene) => {
-    const sceneAssets = assetsByScene.get(scene.id) ?? [];
-    const readyLineCount = sceneAssets.filter((asset) => asset.status === 'ready').length;
-    const failedLineCount = sceneAssets.filter((asset) => asset.status === 'failed').length;
-    const requiredLineCount = getRequiredLineCount(scene);
-    const latestGeneratedAt = sceneAssets
-      .map((asset) => asset.generated_at)
-      .filter(Boolean)
-      .sort()
-      .at(-1) ?? null;
-
-    return {
-      ...scene,
-      processing_metadata: {
-        ...(scene.processing_metadata ?? {}),
-        level1_audio: {
-          required_line_count: requiredLineCount,
-          ready_line_count: readyLineCount,
-          failed_line_count: failedLineCount,
-          latest_generated_at: latestGeneratedAt,
-        },
-      },
-    };
-  });
+  return data as AIProfile;
 }
 
-export async function listLevel1AudioAssetsForScenes(
-  admin: SupabaseClient,
-  sceneIds: string[],
-): Promise<AuditionLevel1AudioAsset[]> {
-  if (sceneIds.length === 0) return [];
-  const { data, error } = await admin
-    .from('audition_level1_audio_assets')
-    .select('*')
-    .in('audition_scene_id', sceneIds)
-    .order('sequence_index', { ascending: true });
+async function loadProfilesForAuditionScript(input: {
+  admin: SupabaseClient;
+  linkedScriptId: string;
+  audition: AuditionScript;
+}) {
+  const narrator = await ensureNarratorProfile(input.admin, input.linkedScriptId);
+  const { data, error } = await input.admin
+    .from('ai_profiles')
+    .select('id, script_id, display_name, status, platform, voice_persona_id, voice_persona_label, metadata, created_at, updated_at')
+    .eq('script_id', input.linkedScriptId)
+    .eq('status', 'active')
+    .order('created_at', { ascending: true });
 
   if (error) throw error;
-  return (data ?? []) as AuditionLevel1AudioAsset[];
+  const profiles = (data ?? []) as AIProfile[];
+  const storedRoleBriefs = getStoredRoleBriefs(input.audition);
+  const requiredRoles = new Set(storedRoleBriefs.map((brief) => brief.roleName));
+  const profileByName = new Map(profiles.map((profile) => [profile.display_name, profile]));
+
+  for (const roleBrief of storedRoleBriefs) {
+    const profile = profileByName.get(roleBrief.roleName);
+    const normalized = normalizeVoicePersonaId(roleBrief.voiceId);
+    if (!profile || !normalized) {
+      throw new Error(`Role ${roleBrief.roleName} is missing a valid shared-script voice profile.`);
+    }
+  }
+
+  const seenVoiceIds = new Map<string, string>();
+  for (const roleName of requiredRoles) {
+    const voiceId = normalizeVoicePersonaId(profileByName.get(roleName)?.voice_persona_id) ?? null;
+    if (!voiceId) {
+      throw new Error(`Role ${roleName} does not have a usable Grok voice id.`);
+    }
+    const existingRole = seenVoiceIds.get(voiceId);
+    if (existingRole && existingRole !== roleName) {
+      throw new Error(`Roles ${existingRole} and ${roleName} share Grok voice ${voiceId}. Each character needs a distinct voice.`);
+    }
+    seenVoiceIds.set(voiceId, roleName);
+  }
+
+  profileByName.set(narrator.display_name, narrator);
+
+  return {
+    narrator,
+    profiles,
+    profileByName,
+  };
+}
+
+async function loadSharedScriptStructure(admin: SupabaseClient, linkedScriptId: string) {
+  const [{ data: scenes, error: scenesError }, { data: chunks, error: chunksError }] = await Promise.all([
+    admin
+      .from('scenes')
+      .select('id, scene_number, scene_heading, processing_metadata, acts!inner(script_id)')
+      .eq('acts.script_id', linkedScriptId)
+      .order('scene_number', { ascending: true }),
+    admin
+      .from('chunks')
+      .select('id, scene_id, chunk_in_scene, chunk_index, type, character, tts_text, chunk_text, is_system')
+      .order('chunk_index', { ascending: true }),
+  ]);
+
+  if (scenesError) throw scenesError;
+  if (chunksError) throw chunksError;
+
+  const sceneRows = (scenes ?? []) as Array<SceneRow & { acts?: Array<{ script_id: string }> | null }>;
+  const sceneIds = new Set(sceneRows.map((scene) => scene.id));
+  const chunkRows = ((chunks ?? []) as ChunkRow[]).filter((chunk) => sceneIds.has(chunk.scene_id));
+
+  return {
+    scenes: sceneRows.map((scene) => ({
+      id: scene.id,
+      scene_number: scene.scene_number,
+      scene_heading: scene.scene_heading,
+      processing_metadata: scene.processing_metadata,
+    })),
+    chunks: chunkRows,
+  };
+}
+
+function buildAuditionLineBridge(input: {
+  auditionScenes: AuditionScene[];
+  sharedScenes: SceneRow[];
+  sharedChunks: ChunkRow[];
+  profileByName: Map<string, AIProfile>;
+}) {
+  const sharedSceneByNumber = new Map(input.sharedScenes.map((scene) => [scene.scene_number, scene]));
+  const chunksByScene = new Map<string, ChunkRow[]>();
+  for (const chunk of input.sharedChunks) {
+    const list = chunksByScene.get(chunk.scene_id) ?? [];
+    list.push(chunk);
+    chunksByScene.set(chunk.scene_id, list);
+  }
+
+  const bridges: AuditionLineBridge[] = [];
+  for (const auditionScene of input.auditionScenes) {
+    const sharedScene = sharedSceneByNumber.get(auditionScene.order_index);
+    if (!sharedScene) {
+      throw new Error(`Could not map audition scene ${auditionScene.label} to hidden shared scene ${auditionScene.order_index}.`);
+    }
+
+    const sharedSceneChunks = chunksByScene.get(sharedScene.id) ?? [];
+    const runtimeLines = parseAuditionSceneRuntimeLines(auditionScene.scene_text);
+
+    for (const runtimeLine of runtimeLines) {
+      const expectedChunkInScene = runtimeLine.sequenceIndex + 2;
+      const mappedChunk = sharedSceneChunks.find((chunk) => chunk.chunk_in_scene === expectedChunkInScene)
+        ?? sharedSceneChunks.find((chunk) =>
+          normalizeText(chunk.tts_text ?? chunk.chunk_text) === normalizeText(runtimeLine.text),
+        );
+
+      if (!mappedChunk) {
+        throw new Error(`Could not map audition line ${runtimeLine.sequenceIndex + 1} in ${auditionScene.label} to a hidden shared-script chunk.`);
+      }
+
+      const profile = runtimeLine.roleName
+        ? input.profileByName.get(runtimeLine.roleName)
+        : input.profileByName.get(NARRATOR_PROFILE_NAME);
+
+      if (!profile) {
+        throw new Error(`No shared-script profile available for ${runtimeLine.roleName ?? 'Narrator'}.`);
+      }
+
+      bridges.push({
+        auditionSceneId: auditionScene.id,
+        auditionSceneOrder: auditionScene.order_index,
+        sequenceIndex: runtimeLine.sequenceIndex,
+        roleName: runtimeLine.roleName,
+        lineText: runtimeLine.text,
+        sharedSceneId: sharedScene.id,
+        chunkId: mappedChunk.id,
+        aiProfileId: profile.id,
+        aiProfileName: profile.display_name,
+      });
+    }
+  }
+
+  return bridges;
+}
+
+function groupContextLines(sourceLines: Awaited<ReturnType<typeof loadGenerationSourceLines>>) {
+  const map = new Map<string, typeof sourceLines>();
+  for (const line of sourceLines) {
+    const list = map.get(line.sceneId) ?? [];
+    list.push(line);
+    map.set(line.sceneId, list);
+  }
+  return map;
 }
 
 async function signR2Object(storageKey: string) {
@@ -136,18 +276,171 @@ async function signR2Object(storageKey: string) {
   return getSignedUrl(r2, command, { expiresIn: 3600 });
 }
 
-export async function buildSignedLevel1AudioUrlMap(assets: AuditionLevel1AudioAsset[]) {
-  const urlMap = new Map<string, string | null>();
-  await Promise.all(assets.map(async (asset) => {
-    if (!asset.storage_key || asset.status !== 'ready') {
-      urlMap.set(`${asset.audition_scene_id}:${asset.sequence_index}`, null);
+function pickLatestRecordingMap(rows: ExistingRecording[]) {
+  const map = new Map<string, ExistingRecording>();
+  for (const row of rows) {
+    const key = `${row.chunk_id}:${row.ai_profile_id ?? ''}`;
+    if (!map.has(key)) map.set(key, row);
+  }
+  return map;
+}
+
+async function listSharedGeneratedRecordings(admin: SupabaseClient, chunkIds: string[], aiProfileIds: string[]) {
+  if (chunkIds.length === 0 || aiProfileIds.length === 0) return new Map<string, ExistingRecording>();
+  const { data, error } = await admin
+    .from('recordings')
+    .select('id, chunk_id, ai_profile_id, video_url, format, line_generation_record_id, created_at')
+    .eq('recording_source', 'ai_generated')
+    .in('chunk_id', chunkIds)
+    .in('ai_profile_id', aiProfileIds)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return pickLatestRecordingMap((data ?? []) as Array<ExistingRecording & { ai_profile_id?: string | null; created_at?: string }>);
+}
+
+async function listLatestFailedGenerationMap(admin: SupabaseClient, chunkIds: string[], aiProfileIds: string[]) {
+  if (chunkIds.length === 0 || aiProfileIds.length === 0) return new Map<string, boolean>();
+  const { data, error } = await admin
+    .from('line_generation_records')
+    .select('chunk_id, ai_profile_id, status, updated_at')
+    .in('chunk_id', chunkIds)
+    .in('ai_profile_id', aiProfileIds)
+    .order('updated_at', { ascending: false });
+
+  if (error) throw error;
+
+  const map = new Map<string, boolean>();
+  for (const row of (data ?? []) as Array<{ chunk_id: string; ai_profile_id: string; status: string }>) {
+    const key = `${row.chunk_id}:${row.ai_profile_id}`;
+    if (!map.has(key)) {
+      map.set(key, row.status === 'failed');
+    }
+  }
+  return map;
+}
+
+async function loadSharedCoverage(input: {
+  admin: SupabaseClient;
+  audition: Pick<AuditionScript, 'id' | 'processing_notes'>;
+  linkedScriptId: string;
+  auditionScenes: AuditionScene[];
+}) {
+  const { profileByName } = await loadProfilesForAuditionScript({
+    admin: input.admin,
+    linkedScriptId: input.linkedScriptId,
+    audition: input.audition as AuditionScript,
+  });
+  const { scenes: sharedScenes, chunks: sharedChunks } = await loadSharedScriptStructure(input.admin, input.linkedScriptId);
+  const bridges = buildAuditionLineBridge({
+    auditionScenes: input.auditionScenes,
+    sharedScenes,
+    sharedChunks,
+    profileByName,
+  });
+
+  const recordings = await listSharedGeneratedRecordings(
+    input.admin,
+    [...new Set(bridges.map((bridge) => bridge.chunkId))],
+    [...new Set(bridges.map((bridge) => bridge.aiProfileId))],
+  );
+  const failures = await listLatestFailedGenerationMap(
+    input.admin,
+    [...new Set(bridges.map((bridge) => bridge.chunkId))],
+    [...new Set(bridges.map((bridge) => bridge.aiProfileId))],
+  );
+
+  const sceneCoverage = new Map<string, CoverageSummary>();
+  for (const bridge of bridges) {
+    const key = `${bridge.chunkId}:${bridge.aiProfileId}`;
+    const recording = recordings.get(key);
+    const summary = sceneCoverage.get(bridge.auditionSceneId) ?? {
+      required_line_count: 0,
+      ready_line_count: 0,
+      failed_line_count: 0,
+      latest_generated_at: null,
+    };
+    summary.required_line_count += 1;
+    if (recording) {
+      summary.ready_line_count += 1;
+    } else if (failures.get(key)) {
+      summary.failed_line_count += 1;
+    }
+    sceneCoverage.set(bridge.auditionSceneId, summary);
+  }
+
+  return {
+    bridges,
+    recordings,
+    sceneCoverage,
+  };
+}
+
+export function mergeLevel1AudioMetadata<T extends Pick<AuditionScene, 'id' | 'processing_metadata'>>(
+  scenes: T[],
+  sceneCoverage: Map<string, CoverageSummary>,
+): T[] {
+  return scenes.map((scene) => {
+    const coverage = sceneCoverage.get(scene.id) ?? {
+      required_line_count: 0,
+      ready_line_count: 0,
+      failed_line_count: 0,
+      latest_generated_at: null,
+    };
+    return {
+      ...scene,
+      processing_metadata: {
+        ...(scene.processing_metadata ?? {}),
+        level1_audio: coverage,
+      },
+    };
+  });
+}
+
+export async function loadAuditionSharedAudioCoverage(input: {
+  admin: SupabaseClient;
+  audition: Pick<AuditionScript, 'id' | 'processing_notes'>;
+  linkedScriptId: string | null;
+  auditionScenes: AuditionScene[];
+}) {
+  if (!input.linkedScriptId || input.auditionScenes.length === 0) {
+    return new Map<string, CoverageSummary>();
+  }
+  const { sceneCoverage } = await loadSharedCoverage({
+    admin: input.admin,
+    audition: input.audition,
+    linkedScriptId: input.linkedScriptId,
+    auditionScenes: input.auditionScenes,
+  });
+  return sceneCoverage;
+}
+
+export async function buildAuditionSharedAudioUrlMap(input: {
+  admin: SupabaseClient;
+  audition: Pick<AuditionScript, 'id' | 'processing_notes'>;
+  linkedScriptId: string | null;
+  auditionScene: AuditionScene;
+}) {
+  if (!input.linkedScriptId) return new Map<number, string | null>();
+  const { bridges, recordings } = await loadSharedCoverage({
+    admin: input.admin,
+    audition: input.audition,
+    linkedScriptId: input.linkedScriptId,
+    auditionScenes: [input.auditionScene],
+  });
+
+  const urlMap = new Map<number, string | null>();
+  await Promise.all(bridges.map(async (bridge) => {
+    const recording = recordings.get(`${bridge.chunkId}:${bridge.aiProfileId}`);
+    if (!recording?.video_url) {
+      urlMap.set(bridge.sequenceIndex, null);
       return;
     }
     try {
-      const url = await signR2Object(asset.storage_key);
-      urlMap.set(`${asset.audition_scene_id}:${asset.sequence_index}`, url);
+      const url = await signR2Object(recording.video_url);
+      urlMap.set(bridge.sequenceIndex, url);
     } catch {
-      urlMap.set(`${asset.audition_scene_id}:${asset.sequence_index}`, null);
+      urlMap.set(bridge.sequenceIndex, null);
     }
   }));
   return urlMap;
@@ -159,182 +452,278 @@ export async function generateAuditionLevel1Audio(input: {
   sceneId?: string | null;
   regenerate?: boolean;
 }) {
-  const apiKey = process.env.XAI_API_KEY;
+  const apiKey = process.env.XAI_API_KEY?.trim();
   if (!apiKey) throw new Error('Missing XAI_API_KEY');
-
-  const roleBriefs = getStoredRoleBriefs(input.audition);
-  if (roleBriefs.length === 0) {
-    throw new Error('Apply scene prep and sync role voices before generating Level 1 audio.');
-  }
 
   const { data: scenes, error } = await input.admin
     .from('audition_scenes')
-    .select('id, audition_script_id, label, order_index, source_page_ref, scene_text, is_active, processing_metadata, created_at, updated_at')
+    .select('*, audition_roles(name)')
     .eq('audition_script_id', input.audition.id)
     .eq('is_active', true)
     .order('order_index', { ascending: true });
-
   if (error) throw error;
 
-  const targetScenes = ((scenes ?? []) as AuditionScene[]).filter((scene) =>
+  const auditionSceneRows = (scenes ?? []) as Array<AuditionScene & { audition_roles?: Array<{ name: string }> }>;
+  const auditionScenes = auditionSceneRows.filter((scene) =>
     input.sceneId ? scene.id === input.sceneId : true,
   );
-  if (targetScenes.length === 0) {
-    throw new Error('No audition scenes available for Level 1 generation.');
+  if (auditionScenes.length === 0) {
+    throw new Error('No audition scenes available for fallback generation.');
   }
 
-  const roleVoiceMap = new Map<string, { voiceId: string; voiceLabel: string | null }>();
-  for (const brief of roleBriefs) {
-    const voiceId = normalizeVoicePersonaId(brief.voiceId);
-    if (!voiceId) {
-      throw new Error(`Role ${brief.roleName} is missing a valid voice persona.`);
-    }
-    roleVoiceMap.set(brief.roleName, {
-      voiceId,
-      voiceLabel: brief.voiceLabel || formatVoicePersonaLabel(voiceId),
+  let linkedScript = await getLinkedScript(input.admin, input.audition.id);
+  if (!linkedScript) {
+    const prepared = await ensureAuditionInternalScriptFromPreparedScenes({
+      admin: input.admin,
+      audition: input.audition,
+      scenes: auditionSceneRows.map((scene) => ({
+        id: scene.id,
+        label: scene.label,
+        order_index: scene.order_index,
+        source_page_ref: scene.source_page_ref,
+        scene_text: scene.scene_text,
+        roles: (scene.audition_roles ?? []).map((role) => ({ name: role.name })),
+      })),
+      processorUserId: input.audition.processed_by_admin_id ?? input.audition.uploaded_by_user_id,
     });
+    linkedScript = prepared.linkedScript;
+    input.audition.processing_notes = {
+      ...(input.audition.processing_notes ?? {}),
+      appliedConfig: prepared.preview ? {
+        roleNames: prepared.preview.roleNames,
+        scenes: prepared.preview.scenes.map((scene) => ({
+          orderIndex: scene.orderIndex,
+          scenarioNumber: scene.scenarioNumber,
+          heading: scene.heading,
+          label: scene.label,
+          sourcePageRef: scene.sourcePageRef,
+          sceneText: scene.sceneText,
+          roleNames: scene.roleNames,
+          sceneObjective: scene.sceneObjective,
+          dramaticPurpose: scene.dramaticPurpose,
+          emotionalTemperature: scene.emotionalTemperature,
+          subtext: scene.subtext,
+          rehearsalEmphasis: scene.rehearsalEmphasis,
+        })),
+        roleBriefs: prepared.preview.roleBriefs,
+        cleanupLog: prepared.preview.cleanupLog,
+        ambiguityLog: prepared.preview.ambiguityLog,
+        internalScript: prepared.preview.internalScript,
+      } : undefined,
+      linkedScriptId: linkedScript.id,
+    };
   }
 
-  const usedRoleVoices = new Map<string, string>();
-  for (const scene of targetScenes) {
-    for (const line of parseAuditionSceneRuntimeLines(scene.scene_text)) {
-      if (!line.roleName) continue;
-      const mapped = roleVoiceMap.get(line.roleName);
-      if (!mapped) {
-        throw new Error(`No role voice is configured for ${line.roleName}.`);
-      }
-      const existingRole = [...usedRoleVoices.entries()].find(([, voiceId]) => voiceId === mapped.voiceId)?.[0];
-      if (existingRole && existingRole !== line.roleName) {
-        throw new Error(`Roles ${existingRole} and ${line.roleName} share voice ${mapped.voiceId}. Each character needs a distinct voice.`);
-      }
-      usedRoleVoices.set(line.roleName, mapped.voiceId);
-    }
+  const { profileByName } = await loadProfilesForAuditionScript({
+    admin: input.admin,
+    linkedScriptId: linkedScript.id,
+    audition: input.audition,
+  });
+  const { scenes: sharedScenes, chunks: sharedChunks } = await loadSharedScriptStructure(input.admin, linkedScript.id);
+  const bridges = buildAuditionLineBridge({
+    auditionScenes,
+    sharedScenes,
+    sharedChunks,
+    profileByName,
+  });
+
+  const sourceLines = await loadGenerationSourceLines(input.admin, linkedScript.id);
+  const lineById = new Map(sourceLines.map((line) => [line.id, line]));
+  const contextByScene = groupContextLines(sourceLines);
+  const existingByProfile = new Map<string, Map<string, ExistingRecording>>();
+  for (const aiProfileId of [...new Set(bridges.map((bridge) => bridge.aiProfileId))]) {
+    const chunkIds = bridges.filter((bridge) => bridge.aiProfileId === aiProfileId).map((bridge) => bridge.chunkId);
+    const existing = input.regenerate
+      ? new Map<string, ExistingRecording>()
+      : await listExistingGeneratedRecordings(input.admin, aiProfileId, chunkIds);
+    existingByProfile.set(aiProfileId, existing);
   }
 
-  const existingAssets = await listLevel1AudioAssetsForScenes(input.admin, targetScenes.map((scene) => scene.id));
-  const existingByKey = new Map(existingAssets.map((asset) => [`${asset.audition_scene_id}:${asset.sequence_index}`, asset]));
+  const runId = randomUUID();
+  const aiProfileIds = [...new Set(bridges.map((bridge) => bridge.aiProfileId))];
+  await input.admin.from('script_generation_runs').insert({
+    id: runId,
+    script_id: linkedScript.id,
+    ai_profile_ids: aiProfileIds,
+    status: 'processing',
+    execution_mode: 'offline_batch',
+    character_map: Object.fromEntries(
+      [...profileByName.entries()].map(([name, profile]) => [name, profile.id]),
+    ),
+    provider_config: {
+      provider: 'xAI',
+      mode: 'audition_level1_bridge',
+      auditionId: input.audition.id,
+    },
+    retry_policy: {
+      regenerateExisting: input.regenerate === true,
+      retryFailedOnly: true,
+    },
+    total_lines: bridges.length,
+    persisted_lines: 0,
+    failed_lines: 0,
+    error_message: null,
+    started_at: new Date().toISOString(),
+    finished_at: null,
+  });
 
   let generatedCount = 0;
   let reusedCount = 0;
+  let failedCount = 0;
 
-  for (const scene of targetScenes) {
-    const runtimeLines = parseAuditionSceneRuntimeLines(scene.scene_text);
+  for (const bridge of bridges) {
+    const existing = existingByProfile.get(bridge.aiProfileId)?.get(bridge.chunkId) ?? null;
+    if (existing && !input.regenerate) {
+      reusedCount += 1;
+      continue;
+    }
 
-    for (const runtimeLine of runtimeLines) {
-      const key = `${scene.id}:${runtimeLine.sequenceIndex}`;
-      const existing = existingByKey.get(key);
-      if (!input.regenerate && existing?.status === 'ready' && existing.storage_key) {
-        reusedCount += 1;
-        continue;
-      }
+    const line = lineById.get(bridge.chunkId);
+    const profile = profileByName.get(bridge.aiProfileName);
+    if (!line || !profile) {
+      failedCount += 1;
+      continue;
+    }
 
-      const voiceId = runtimeLine.roleName
-        ? roleVoiceMap.get(runtimeLine.roleName)?.voiceId
-        : LEVEL1_NARRATOR_VOICE_ID;
-      if (!voiceId) {
-        throw new Error(`Missing voice mapping for ${runtimeLine.roleName ?? 'scene cue'}.`);
-      }
+    const contextLines = contextByScene.get(line.sceneId) ?? [line];
+    const interpretation = buildDefaultInterpretation(
+      line,
+      contextLines.filter((candidate) => Math.abs(candidate.chunkInScene - line.chunkInScene) <= 2),
+    );
 
-      const sourceLine = buildLevel1SourceLine({
-        auditionId: input.audition.id,
-        scene,
-        sequenceIndex: runtimeLine.sequenceIndex,
-        roleName: runtimeLine.roleName,
-        text: runtimeLine.text,
-        type: runtimeLine.kind,
+    try {
+      const synthesis = await synthesizeWithXaiTts({
+        apiKey,
+        line,
+        interpretation,
+        voicePersonaId: profile.voice_persona_id,
       });
-      const interpretation = buildLevel1Interpretation(runtimeLine.roleName);
 
-      try {
-        const synthesis = await synthesizeWithXaiTts({
-          apiKey,
-          line: sourceLine,
-          interpretation,
-          voicePersonaId: voiceId,
-        });
+      const storagePlan = buildSyntheticAudioPlan({
+        runId,
+        scriptId: linkedScript.id,
+        aiProfileId: profile.id,
+        lineId: line.id,
+        contentType: synthesis.contentType,
+        fileExtension: synthesis.fileExtension,
+      });
 
-        const storageKey = buildLevel1StorageKey({
-          auditionId: input.audition.id,
-          sceneId: scene.id,
-          sequenceIndex: runtimeLine.sequenceIndex,
-          voiceId,
+      await persistSyntheticAudioToR2({
+        plan: storagePlan,
+        payload: {
+          bytes: synthesis.audioBytes,
+          contentType: synthesis.contentType,
           fileExtension: synthesis.fileExtension,
-        });
+        },
+      });
 
-        await persistSyntheticAudioToR2({
-          plan: {
-            storageKey,
-            contentType: synthesis.contentType,
-            fileExtension: synthesis.fileExtension,
-          },
-          payload: {
-            bytes: synthesis.audioBytes,
-            contentType: synthesis.contentType,
-            fileExtension: synthesis.fileExtension,
-          },
-        });
+      const lineGenerationRecordId = await upsertLineGenerationRecord(input.admin, {
+        run_id: runId,
+        script_id: linkedScript.id,
+        scene_id: line.sceneId,
+        chunk_id: line.id,
+        ai_profile_id: profile.id,
+        status: 'synthesized',
+        source_line_snapshot: line.chunkText,
+        prompt_context_version: 'audition-level1-via-grok',
+        pause_before_ms: interpretation.pauseBeforeMs,
+        pause_after_ms: interpretation.pauseAfterMs,
+        emotion_labels: interpretation.emotionTags,
+        delivery_notes: interpretation.deliveryNotes.join(' | ') || null,
+        cadence_notes: interpretation.emphasisNotes.join(' | ') || null,
+        continuity_notes: interpretation.continuityNotes.join(' | ') || null,
+        interpretation_provider: 'Grok',
+        interpretation_request_payload: {
+          voicePersonaId: profile.voice_persona_id,
+          voicePersonaLabel: profile.voice_persona_label,
+          interpretationSource: interpretation.interpretationSource,
+        },
+        interpretation_response_payload: interpretation as unknown as Record<string, unknown>,
+        synthesis_provider: 'Grok',
+        synthesis_request_payload: synthesis.requestPayload,
+        synthesis_response_payload: synthesis.responsePayload,
+        synthesis_asset_key: storagePlan.storageKey,
+        recording_id: null,
+        error_message: null,
+        error_details: null,
+        interpreted_at: new Date().toISOString(),
+        synthesized_at: new Date().toISOString(),
+        persisted_at: null,
+      });
 
-        const row = {
-          id: existing?.id ?? randomUUID(),
-          audition_script_id: input.audition.id,
-          audition_scene_id: scene.id,
-          sequence_index: runtimeLine.sequenceIndex,
-          role_name: runtimeLine.roleName,
-          line_text: runtimeLine.text,
-          voice_persona_id: voiceId,
-          voice_persona_label: runtimeLine.roleName
-            ? (roleVoiceMap.get(runtimeLine.roleName)?.voiceLabel ?? formatVoicePersonaLabel(voiceId))
-            : formatVoicePersonaLabel(voiceId),
-          status: 'ready' as const,
-          storage_key: storageKey,
-          content_type: synthesis.contentType,
-          byte_length: synthesis.audioBytes.byteLength,
-          request_payload: synthesis.requestPayload,
-          response_payload: synthesis.responsePayload,
-          error_message: null,
-          generated_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
+      const recordingId = await insertGeneratedRecording({
+        admin: input.admin,
+        chunkId: line.id,
+        aiProfileId: profile.id,
+        runId,
+        lineGenerationRecordId,
+        storageKey: storagePlan.storageKey,
+        format: synthesis.contentType,
+        sizeBytes: synthesis.audioBytes.byteLength,
+      });
 
-        const { error: upsertError } = await input.admin
-          .from('audition_level1_audio_assets')
-          .upsert(row, { onConflict: 'audition_scene_id,sequence_index' });
+      await input.admin
+        .from('line_generation_records')
+        .update({
+          status: 'persisted',
+          recording_id: recordingId,
+          persisted_at: new Date().toISOString(),
+        })
+        .eq('id', lineGenerationRecordId);
 
-        if (upsertError) throw upsertError;
-        generatedCount += 1;
-      } catch (generationError) {
-        const row = {
-          id: existing?.id ?? randomUUID(),
-          audition_script_id: input.audition.id,
-          audition_scene_id: scene.id,
-          sequence_index: runtimeLine.sequenceIndex,
-          role_name: runtimeLine.roleName,
-          line_text: runtimeLine.text,
-          voice_persona_id: voiceId,
-          voice_persona_label: formatVoicePersonaLabel(voiceId),
-          status: 'failed' as const,
-          storage_key: null,
-          content_type: null,
-          byte_length: null,
-          request_payload: { voiceId },
-          response_payload: {},
-          error_message: generationError instanceof Error ? generationError.message : 'Level 1 audio generation failed',
-          generated_at: null,
-          updated_at: new Date().toISOString(),
-        };
-
-        const { error: upsertError } = await input.admin
-          .from('audition_level1_audio_assets')
-          .upsert(row, { onConflict: 'audition_scene_id,sequence_index' });
-
-        if (upsertError) throw upsertError;
-      }
+      generatedCount += 1;
+    } catch (generationError) {
+      failedCount += 1;
+      await upsertLineGenerationRecord(input.admin, {
+        run_id: runId,
+        script_id: linkedScript.id,
+        scene_id: line.sceneId,
+        chunk_id: line.id,
+        ai_profile_id: profile.id,
+        status: 'failed',
+        source_line_snapshot: line.chunkText,
+        prompt_context_version: 'audition-level1-via-grok',
+        pause_before_ms: interpretation.pauseBeforeMs,
+        pause_after_ms: interpretation.pauseAfterMs,
+        emotion_labels: interpretation.emotionTags,
+        delivery_notes: interpretation.deliveryNotes.join(' | ') || null,
+        cadence_notes: interpretation.emphasisNotes.join(' | ') || null,
+        continuity_notes: interpretation.continuityNotes.join(' | ') || null,
+        interpretation_provider: 'Grok',
+        interpretation_request_payload: {
+          voicePersonaId: profile.voice_persona_id,
+          voicePersonaLabel: profile.voice_persona_label,
+        },
+        interpretation_response_payload: {},
+        synthesis_provider: 'Grok',
+        synthesis_request_payload: {},
+        synthesis_response_payload: {},
+        synthesis_asset_key: null,
+        recording_id: null,
+        error_message: generationError instanceof Error ? generationError.message : 'Shared fallback generation failed',
+        error_details: null,
+        interpreted_at: new Date().toISOString(),
+        synthesized_at: null,
+        persisted_at: null,
+      });
     }
   }
+
+  await input.admin
+    .from('script_generation_runs')
+    .update({
+      status: failedCount > 0 ? 'failed' : 'succeeded',
+      persisted_lines: generatedCount + reusedCount,
+      failed_lines: failedCount,
+      error_message: failedCount > 0 ? 'One or more fallback lines failed to generate' : null,
+      finished_at: new Date().toISOString(),
+    })
+    .eq('id', runId);
 
   return {
     generatedCount,
     reusedCount,
-    sceneCount: targetScenes.length,
+    failedCount,
+    sceneCount: auditionScenes.length,
   };
 }

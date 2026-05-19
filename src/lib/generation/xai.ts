@@ -123,6 +123,7 @@ export async function interpretWithXai(input: {
   profile: GenerationProfile;
   roleBrief: Record<string, unknown> | null;
 }): Promise<XaiInterpretationResult> {
+  const apiKey = input.apiKey.trim();
   const sceneMetadata = input.line.sceneMetadata ?? {};
   const model = process.env.XAI_CHAT_MODEL ?? 'grok-4.20-reasoning';
   const sceneObjective = typeof sceneMetadata.sceneObjective === 'string' ? sceneMetadata.sceneObjective : '';
@@ -214,7 +215,7 @@ export async function interpretWithXai(input: {
   const response = await fetch('https://api.x.ai/v1/chat/completions', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${input.apiKey}`,
+      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(requestPayload),
@@ -244,6 +245,7 @@ export async function synthesizeWithXaiTts(input: {
   interpretation: GenerationLineInterpretation;
   voicePersonaId: string | null;
 }): Promise<XaiTtsResult> {
+  const apiKey = input.apiKey.trim();
   const voiceId = normalizeVoicePersonaId(input.voicePersonaId) ?? 'eve';
   const expressiveText = applyInterpretationTags(
     (input.line.ttsText ?? input.line.chunkText).trim(),
@@ -264,7 +266,7 @@ export async function synthesizeWithXaiTts(input: {
   const response = await fetch('https://api.x.ai/v1/tts', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${input.apiKey}`,
+      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(requestPayload),

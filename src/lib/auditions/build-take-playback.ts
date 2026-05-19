@@ -1,12 +1,13 @@
 import { createAdminClient } from '@/lib/supabase/admin';
 import type {
-  AuditionLevel1AudioAsset,
+  AuditionScript,
   AuditionTake,
   AuditionTakeClip,
   AuditionTakeRoleAssignment,
+  Script,
 } from '@/lib/types';
 import { AUDITION_STORAGE_BUCKET } from './constants';
-import { buildSignedLevel1AudioUrlMap, listLevel1AudioAssetsForScenes } from './level1-audio';
+import { buildAuditionSharedAudioUrlMap } from './level1-audio';
 import { parseAuditionSceneRuntimeLines } from './scene-runtime';
 
 export interface AuditionTakePlaybackItem {
@@ -57,7 +58,7 @@ export async function buildAuditionTakePlaybackData(takeId: string): Promise<Aud
 
   if (!take) return null;
 
-  const [{ data: scene }, { data: script }, { data: assignments }, { data: clips }] = await Promise.all([
+  const [{ data: scene }, { data: script }, { data: assignments }, { data: clips }, { data: linkedScript }] = await Promise.all([
     admin
       .from('audition_scenes')
       .select('id, label, order_index, source_page_ref, scene_text')
@@ -65,7 +66,7 @@ export async function buildAuditionTakePlaybackData(takeId: string): Promise<Aud
       .maybeSingle(),
     admin
       .from('audition_scripts')
-      .select('id, title')
+      .select('id, title, processing_notes')
       .eq('id', take.audition_script_id)
       .maybeSingle(),
     admin
@@ -78,15 +79,16 @@ export async function buildAuditionTakePlaybackData(takeId: string): Promise<Aud
       .eq('take_id', takeId)
       .order('sequence_index')
       .order('created_at', { ascending: false }),
+    admin
+      .from('scripts')
+      .select('id')
+      .eq('source_audition_script_id', take.audition_script_id)
+      .maybeSingle(),
   ]);
 
   if (!scene || !script) return null;
 
   const runtimeLines = parseAuditionSceneRuntimeLines(scene.scene_text);
-  const level1Assets = await listLevel1AudioAssetsForScenes(admin, [scene.id]);
-  const level1AudioMap = new Map(
-    (level1Assets as AuditionLevel1AudioAsset[]).map((asset) => [asset.sequence_index, asset]),
-  );
   const latestClipBySequence = new Map<number, AuditionTakeClip & { profiles?: { display_name: string } | null }>();
   for (const clip of ((clips ?? []) as Array<AuditionTakeClip & { profiles?: { display_name: string } | null }>)) {
     if (!latestClipBySequence.has(clip.sequence_index)) {
@@ -106,11 +108,21 @@ export async function buildAuditionTakePlaybackData(takeId: string): Promise<Aud
       .createSignedUrl(clip.storage_key, 60 * 60);
     signedUrls.set(sequenceIndex, data?.signedUrl ?? null);
   }
-  const level1SignedUrls = await buildSignedLevel1AudioUrlMap(level1Assets as AuditionLevel1AudioAsset[]);
+  const level1SignedUrls = await buildAuditionSharedAudioUrlMap({
+    admin,
+    audition: script as Pick<AuditionScript, 'id' | 'processing_notes'>,
+    linkedScriptId: (linkedScript as Pick<Script, 'id'> | null)?.id ?? null,
+    auditionScene: {
+      ...scene,
+      audition_script_id: take.audition_script_id,
+      is_active: true,
+      created_at: '',
+      updated_at: '',
+    },
+  });
 
   const items: AuditionTakePlaybackItem[] = runtimeLines.map((line) => {
     const clip = latestClipBySequence.get(line.sequenceIndex);
-    const level1Asset = level1AudioMap.get(line.sequenceIndex) ?? null;
     const assignment = line.roleName ? assignmentByRole.get(line.roleName) : null;
     const recordedByAssignedUser = Boolean(
       clip && assignment && assignment.assignment_type === 'human' && assignment.user_id && assignment.user_id === clip.actor_user_id,
@@ -130,12 +142,10 @@ export async function buildAuditionTakePlaybackData(takeId: string): Promise<Aud
       performerName: clip?.profiles?.display_name ?? null,
       fallbackSource: clip
         ? (recordedByAssignedUser ? 'performer' : 'cover')
-        : level1Asset?.status === 'ready'
+        : level1SignedUrls.get(line.sequenceIndex)
           ? 'tts'
           : 'text',
-      ttsUrl: level1Asset?.status === 'ready'
-        ? (level1SignedUrls.get(`${scene.id}:${line.sequenceIndex}`) ?? null)
-        : null,
+      ttsUrl: level1SignedUrls.get(line.sequenceIndex) ?? null,
     };
   });
 

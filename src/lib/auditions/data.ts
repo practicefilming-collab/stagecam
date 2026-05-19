@@ -1,7 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin';
 import type {
   AuditionAttempt,
-  AuditionLevel1AudioAsset,
   AuditionRoomParticipant,
   AuditionRole,
   AuditionScene,
@@ -14,7 +13,7 @@ import type {
   Profile,
   Script,
 } from '@/lib/types';
-import { listLevel1AudioAssetsForScenes, mergeLevel1AudioMetadata } from './level1-audio';
+import { loadAuditionSharedAudioCoverage, mergeLevel1AudioMetadata } from './level1-audio';
 import { summarizeSceneReadiness } from './scene-runtime';
 
 export interface AuditionSceneWithRoles extends AuditionScene {
@@ -138,8 +137,13 @@ export async function getAuditionDetail(auditionId: string): Promise<AuditionDet
     ...scene,
     roles: (scene.audition_roles ?? []).sort((a, b) => a.order_index - b.order_index),
   }));
-  const level1Assets = await listLevel1AudioAssetsForScenes(admin, sceneSeed.map((scene) => scene.id));
-  const scenes = mergeLevel1AudioMetadata(sceneSeed, level1Assets as AuditionLevel1AudioAsset[]);
+  const level1Coverage = await loadAuditionSharedAudioCoverage({
+    admin,
+    audition: script as Pick<AuditionScript, 'id' | 'processing_notes'>,
+    linkedScriptId: (linkedScript as Pick<Script, 'id'> | null)?.id ?? null,
+    auditionScenes: sceneSeed,
+  });
+  const scenes = mergeLevel1AudioMetadata(sceneSeed, level1Coverage);
 
   return {
     script: script as AuditionScript,
