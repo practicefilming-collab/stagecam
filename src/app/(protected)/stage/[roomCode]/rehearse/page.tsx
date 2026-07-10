@@ -50,6 +50,7 @@ export default function RehearsePage() {
         .from('scripts')
         .select('*')
         .eq('id', roomData.script_id)
+        .eq('is_internal', false)
         .single();
       setScript(scriptData);
 
