@@ -17,6 +17,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'script_id required' }, { status: 400 });
   }
 
+  // Reject private/internal (audition-derived) scripts — rooms may only bind public scripts.
+  if (script_id) {
+    const { data: publicScript } = await supabase
+      .from('scripts')
+      .select('id')
+      .eq('id', script_id)
+      .eq('is_internal', false)
+      .single();
+    if (!publicScript) {
+      return NextResponse.json({ error: 'Script not found' }, { status: 404 });
+    }
+  }
+
   // Generate unique room code
   let roomCode: string;
   let attempts = 0;
@@ -75,6 +88,10 @@ export async function GET(request: Request) {
       .select('*, scripts(*)')
       .eq('room_code', code)
       .single();
+    // Never expose private/internal script content, even if one was bound before validation existed.
+    if (room?.scripts && (room.scripts as { is_internal?: boolean }).is_internal) {
+      room.scripts = null;
+    }
     return NextResponse.json(room);
   }
 

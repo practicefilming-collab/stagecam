@@ -20,6 +20,7 @@ export default function CreateStagePage() {
       const { data } = await supabase
         .from('scripts')
         .select('*')
+        .eq('is_internal', false)
         .order('rank', { ascending: true });
       setScripts(data ?? []);
       setLoading(false);

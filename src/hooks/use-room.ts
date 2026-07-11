@@ -25,7 +25,7 @@ export function useRoom(roomCode: string) {
       setRoom(roomData);
 
       const [scriptRes, actsRes, participantsRes] = await Promise.all([
-        supabase.from('scripts').select('*').eq('id', roomData.script_id).single(),
+        supabase.from('scripts').select('*').eq('id', roomData.script_id).eq('is_internal', false).single(),
         supabase.from('acts').select('*').eq('script_id', roomData.script_id).order('act_number'),
         supabase.from('room_participants').select('*').eq('room_id', roomData.id),
       ]);

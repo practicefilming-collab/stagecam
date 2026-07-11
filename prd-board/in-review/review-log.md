@@ -82,3 +82,52 @@ Chronological record of every PRD that enters review.
 - **Source**: requests/PRD-stats-me-continue-2026-03-14_1400/
 - **Status**: approved → moved to approved/
 - **Completed**: 2026-03-14T14:00:00Z
+ 
+---
+
+## PRD-system-grok-ai-script-profiles-2026-03-27_1845
+
+- **Moved to review**: 2026-03-27T18:54:26Z
+- **Source**: requests/PRD-system-grok-ai-script-profiles-2026-03-27_1845/
+- **Status**: approved â†’ moved to approved/
+- **Completed**: 2026-03-27T18:55:54Z
+
+---
+
+_Batch intake from redev session `redev/system/full-audit-2026-07-08_0500/`. Four PRDs share
+the timestamp 2026-07-08_0500; processed one at a time in dependency order (privacy →
+upload-url → pipeline → testing) per the audit's `findings-analysis.md`._
+
+## PRD-system-script-privacy-enforcement-2026-07-08_0500
+
+- **Moved to review**: 2026-07-08T05:01:00Z
+- **Source**: requests/PRD-system-script-privacy-enforcement-2026-07-08_0500/
+- **Status**: approved → moved to approved/
+- **Completed**: 2026-07-08T05:02:00Z
+
+---
+
+## PRD-system-upload-url-hardening-2026-07-08_0500
+
+- **Moved to review**: 2026-07-08T05:03:00Z
+- **Source**: requests/PRD-system-upload-url-hardening-2026-07-08_0500/
+- **Status**: approved → moved to approved/
+- **Completed**: 2026-07-08T05:04:00Z
+
+---
+
+## PRD-system-pipeline-resilience-2026-07-08_0500
+
+- **Moved to review**: 2026-07-08T05:05:00Z
+- **Source**: requests/PRD-system-pipeline-resilience-2026-07-08_0500/
+- **Status**: approved → moved to approved/
+- **Completed**: 2026-07-08T05:06:00Z
+
+---
+
+## PRD-system-testing-infrastructure-2026-07-08_0500
+
+- **Moved to review**: 2026-07-08T05:07:00Z
+- **Source**: requests/PRD-system-testing-infrastructure-2026-07-08_0500/
+- **Status**: approved → moved to approved/
+- **Completed**: 2026-07-08T05:08:00Z

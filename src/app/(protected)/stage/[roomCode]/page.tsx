@@ -360,6 +360,7 @@ export default function BackstagePage() {
       const { data } = await supabase
         .from('scripts')
         .select('*')
+        .eq('is_internal', false)
         .order('rank', { ascending: true });
       setScripts(data ?? []);
     }

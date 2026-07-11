@@ -30,7 +30,19 @@ export async function PATCH(
   const body = await request.json();
   const updates: Record<string, unknown> = {};
 
-  if (body.script_id !== undefined) updates.script_id = body.script_id;
+  if (body.script_id !== undefined) {
+    // Rooms may only bind public scripts — reject private/internal (audition-derived) ones.
+    const { data: publicScript } = await supabase
+      .from('scripts')
+      .select('id')
+      .eq('id', body.script_id)
+      .eq('is_internal', false)
+      .single();
+    if (!publicScript) {
+      return NextResponse.json({ error: 'Script not found' }, { status: 404 });
+    }
+    updates.script_id = body.script_id;
+  }
   if (body.selection_mode !== undefined) updates.selection_mode = body.selection_mode;
   if (body.selected_act_id !== undefined) updates.selected_act_id = body.selected_act_id;
   if (body.selected_scene_id !== undefined) updates.selected_scene_id = body.selected_scene_id;
