@@ -21,4 +21,6 @@ enforcement). The RLS backstop (Phase 4) and predicate centralisation remain out
 
 | Hash | Summary |
 |------|---------|
-| _pending_ | Enforce script privacy in room API + client reads (F-3–F-7) |
+| 4e332c0 | Phase 1: filter `is_internal` in stage script pickers (F-1/F-2) |
+| 8e4b7e6 | Phases 2–3: room API validation + GET narrowing + client-read filters (F-3–F-7) |
+| 01b14c9 | Merged to master via PR #1 (production deploy) |
